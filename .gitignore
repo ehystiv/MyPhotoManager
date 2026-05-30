@@ -1,3 +1,15 @@
-/MyPhotoManager.app
-.claude
+# macOS
 .DS_Store
+
+# Local dev artifacts
+.claude
+
+# Wails build output
+/build/bin/
+/MyPhotoManager.app
+/myphoto
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/package.json.md5
