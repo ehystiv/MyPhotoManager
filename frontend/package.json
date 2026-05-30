@@ -9,10 +9,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.0"
+    "@formkit/auto-animate": "^0.9.0",
+    "@lucide/vue": "^1.17.0",
+    "@vueuse/core": "^14.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "reka-ui": "^2.9.8",
+    "tailwind-merge": "^3.6.0",
+    "virtua": "^0.49.1",
+    "vue": "^3.4.0",
+    "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
     "vite": "^5.0.0"
   }
 }
