@@ -14,8 +14,16 @@ export function ChooseOutputDir() {
   return window['go']['main']['App']['ChooseOutputDir']();
 }
 
+export function ClearRecents() {
+  return window['go']['main']['App']['ClearRecents']();
+}
+
 export function Dedupe(arg1, arg2) {
   return window['go']['main']['App']['Dedupe'](arg1, arg2);
+}
+
+export function FormatPreview(arg1, arg2) {
+  return window['go']['main']['App']['FormatPreview'](arg1, arg2);
 }
 
 export function GetPreferences() {
@@ -26,6 +34,10 @@ export function HandleDrop(arg1) {
   return window['go']['main']['App']['HandleDrop'](arg1);
 }
 
+export function NotifyDesktop(arg1, arg2) {
+  return window['go']['main']['App']['NotifyDesktop'](arg1, arg2);
+}
+
 export function OpenInFinder(arg1) {
   return window['go']['main']['App']['OpenInFinder'](arg1);
 }
@@ -34,12 +46,20 @@ export function Organize(arg1) {
   return window['go']['main']['App']['Organize'](arg1);
 }
 
+export function ResetPreferences() {
+  return window['go']['main']['App']['ResetPreferences']();
+}
+
 export function SavePreferences(arg1) {
   return window['go']['main']['App']['SavePreferences'](arg1);
 }
 
 export function ScanPhotos(arg1) {
   return window['go']['main']['App']['ScanPhotos'](arg1);
+}
+
+export function ShowAbout() {
+  return window['go']['main']['App']['ShowAbout']();
 }
 
 export function StopCurrentWatch() {

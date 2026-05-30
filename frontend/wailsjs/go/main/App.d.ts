@@ -8,19 +8,29 @@ export function ChooseInputDir():Promise<string>;
 
 export function ChooseOutputDir():Promise<string>;
 
+export function ClearRecents():Promise<void>;
+
 export function Dedupe(arg1:string,arg2:boolean):Promise<void>;
+
+export function FormatPreview(arg1:string,arg2:string):Promise<main.FormatPreviewResult>;
 
 export function GetPreferences():Promise<main.Prefs>;
 
 export function HandleDrop(arg1:Array<string>):Promise<string>;
 
+export function NotifyDesktop(arg1:string,arg2:string):Promise<void>;
+
 export function OpenInFinder(arg1:string):Promise<void>;
 
 export function Organize(arg1:main.Prefs):Promise<void>;
 
+export function ResetPreferences():Promise<main.Prefs>;
+
 export function SavePreferences(arg1:main.Prefs):Promise<void>;
 
 export function ScanPhotos(arg1:string):Promise<main.ScanResult>;
+
+export function ShowAbout():Promise<void>;
 
 export function StopCurrentWatch():Promise<void>;
 

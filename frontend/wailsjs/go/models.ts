@@ -1,5 +1,23 @@
 export namespace main {
 	
+	export class FormatPreviewResult {
+	    folder: string;
+	    file: string;
+	    full: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FormatPreviewResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.folder = source["folder"];
+	        this.file = source["file"];
+	        this.full = source["full"];
+	        this.error = source["error"];
+	    }
+	}
 	export class Prefs {
 	    inputDir: string;
 	    outputDir: string;
@@ -12,6 +30,8 @@ export namespace main {
 	    cleanDirs: boolean;
 	    folderFmt: string;
 	    fileTpl: string;
+	    recents: string[];
+	    confirmedUnsafeOnce: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Prefs(source);
@@ -30,6 +50,8 @@ export namespace main {
 	        this.cleanDirs = source["cleanDirs"];
 	        this.folderFmt = source["folderFmt"];
 	        this.fileTpl = source["fileTpl"];
+	        this.recents = source["recents"];
+	        this.confirmedUnsafeOnce = source["confirmedUnsafeOnce"];
 	    }
 	}
 	export class ScanResult {
@@ -37,6 +59,7 @@ export namespace main {
 	    raw: number;
 	    others: number;
 	    noExif: number;
+	    totalBytes: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScanResult(source);
@@ -48,6 +71,7 @@ export namespace main {
 	        this.raw = source["raw"];
 	        this.others = source["others"];
 	        this.noExif = source["noExif"];
+	        this.totalBytes = source["totalBytes"];
 	    }
 	}
 

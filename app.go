@@ -11,29 +11,42 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const maxRecents = 8
+
 type Prefs struct {
-	InputDir   string `json:"inputDir"`
-	OutputDir  string `json:"outputDir"`
-	DryRun     bool   `json:"dryRun"`
-	CopyMode   bool   `json:"copyMode"`
-	StripMeta  bool   `json:"stripMeta"`
-	ModTime    bool   `json:"modTime"`
-	CheckDupes bool   `json:"checkDupes"`
-	RenameOnly bool   `json:"renameOnly"`
-	CleanDirs  bool   `json:"cleanDirs"`
-	FolderFmt  string `json:"folderFmt"`
-	FileTpl    string `json:"fileTpl"`
+	InputDir            string   `json:"inputDir"`
+	OutputDir           string   `json:"outputDir"`
+	DryRun              bool     `json:"dryRun"`
+	CopyMode            bool     `json:"copyMode"`
+	StripMeta           bool     `json:"stripMeta"`
+	ModTime             bool     `json:"modTime"`
+	CheckDupes          bool     `json:"checkDupes"`
+	RenameOnly          bool     `json:"renameOnly"`
+	CleanDirs           bool     `json:"cleanDirs"`
+	FolderFmt           string   `json:"folderFmt"`
+	FileTpl             string   `json:"fileTpl"`
+	Recents             []string `json:"recents"`
+	ConfirmedUnsafeOnce bool     `json:"confirmedUnsafeOnce"`
+}
+
+type FormatPreviewResult struct {
+	Folder string `json:"folder"`
+	File   string `json:"file"`
+	Full   string `json:"full"`
+	Error  string `json:"error,omitempty"`
 }
 
 type ScanResult struct {
-	Total  int `json:"total"`
-	Raw    int `json:"raw"`
-	Others int `json:"others"`
-	NoExif int `json:"noExif"`
+	Total      int   `json:"total"`
+	Raw        int   `json:"raw"`
+	Others     int   `json:"others"`
+	NoExif     int   `json:"noExif"`
+	TotalBytes int64 `json:"totalBytes"`
 }
 
 type YearStat struct {
@@ -130,8 +143,59 @@ func (a *App) ChooseInputDir() string {
 		return ""
 	}
 	a.prefs.InputDir = dir
+	a.pushRecent(dir)
 	a.savePrefs()
 	return dir
+}
+
+func (a *App) pushRecent(dir string) {
+	if dir == "" {
+		return
+	}
+	out := []string{dir}
+	for _, r := range a.prefs.Recents {
+		if r == dir || r == "" {
+			continue
+		}
+		out = append(out, r)
+		if len(out) >= maxRecents {
+			break
+		}
+	}
+	a.prefs.Recents = out
+}
+
+func (a *App) ClearRecents() {
+	a.prefs.Recents = nil
+	a.savePrefs()
+}
+
+func (a *App) ResetPreferences() Prefs {
+	a.prefs = Prefs{
+		FolderFmt: "2006_01_02",
+		FileTpl:   "photo_{date}_{time}",
+		Recents:   a.prefs.Recents,
+	}
+	a.savePrefs()
+	return a.prefs
+}
+
+// FormatPreview restituisce un esempio del path risultante per i valori dati.
+func (a *App) FormatPreview(folderFmt, fileTpl string) FormatPreviewResult {
+	if folderFmt == "" {
+		folderFmt = "2006_01_02"
+	}
+	if fileTpl == "" {
+		fileTpl = "photo_{date}_{time}"
+	}
+	dt := time.Date(2026, 5, 30, 15, 45, 32, 0, time.Local)
+	folder := dt.Format(folderFmt)
+	file := buildFilename(fileTpl, dt, "canon_eos_r5", ".jpg")
+	return FormatPreviewResult{
+		Folder: folder,
+		File:   file,
+		Full:   filepath.Join("altri", folder, file),
+	}
 }
 
 func (a *App) ChooseOutputDir() string {
@@ -162,11 +226,40 @@ func (a *App) ScanPhotos(inputDir string) ScanResult {
 		} else {
 			result.Others++
 		}
+		if info, statErr := os.Stat(p); statErr == nil {
+			result.TotalBytes += info.Size()
+		}
 		if _, ok := getExifDatetime(p); !ok {
 			result.NoExif++
 		}
 	}
 	return result
+}
+
+// NotifyDesktop mostra una notifica desktop macOS via osascript.
+func (a *App) NotifyDesktop(title, body string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// Escape doppi apici per osascript.
+	esc := func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`)
+	}
+	script := fmt.Sprintf(`display notification "%s" with title "%s"`, esc(body), esc(title))
+	exec.Command("osascript", "-e", script).Start() //nolint:errcheck
+}
+
+// ShowAbout mostra il dialog "Informazioni" via Wails.
+func (a *App) ShowAbout() {
+	if a.ctx == nil {
+		return
+	}
+	wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+		Type:    wailsruntime.InfoDialog,
+		Title:   "MyPhotoManager",
+		Message: "Organizza, rinomina e deduplica le tue foto in modo automatico.\n\nFatto con Wails + Vue 3.",
+		Buttons: []string{"OK"},
+	}) //nolint:errcheck
 }
 
 type eventLogWriter struct {
@@ -223,6 +316,38 @@ func (a *App) buildResult(stats OrganizerStats) OrganizeResult {
 	return result
 }
 
+// progressEmitter restituisce una ProgressFunc che calcola throughput ed ETA
+// e emette progress:update verso il frontend.
+func (a *App) progressEmitter() ProgressFunc {
+	start := time.Now()
+	var lastEmit time.Time
+	return func(cur, tot int, name string) {
+		now := time.Now()
+		// Throttle: max ~20 eventi/s, ma sempre primo e ultimo.
+		if cur > 1 && cur < tot && now.Sub(lastEmit) < 50*time.Millisecond {
+			return
+		}
+		lastEmit = now
+		elapsed := now.Sub(start).Seconds()
+		var throughput float64
+		var etaSec float64
+		if elapsed > 0.2 {
+			throughput = float64(cur) / elapsed
+			if throughput > 0 && cur < tot {
+				etaSec = float64(tot-cur) / throughput
+			}
+		}
+		wailsruntime.EventsEmit(a.ctx, "progress:update", map[string]interface{}{
+			"current":    cur,
+			"total":      tot,
+			"filename":   name,
+			"throughput": throughput,
+			"etaSec":     etaSec,
+			"elapsedSec": elapsed,
+		})
+	}
+}
+
 func (a *App) Organize(opts Prefs) {
 	a.opMu.Lock()
 	if a.cancelOp != nil {
@@ -243,13 +368,7 @@ func (a *App) Organize(opts Prefs) {
 		}
 
 		lw := &eventLogWriter{app: a}
-		onProgress := func(cur, tot int, name string) {
-			wailsruntime.EventsEmit(a.ctx, "progress:update", map[string]interface{}{
-				"current": cur, "total": tot, "filename": name,
-			})
-		}
-
-		stats, err := organizePhotos(ctx, inputDir, outputDir, a.buildOrgOpts(opts), onProgress, lw)
+		stats, err := organizePhotos(ctx, inputDir, outputDir, a.buildOrgOpts(opts), a.progressEmitter(), lw)
 		result := a.buildResult(stats)
 		if err != nil && ctx.Err() == nil {
 			result.Err = err.Error()
@@ -280,13 +399,8 @@ func (a *App) BeginWatch(opts Prefs) {
 
 	a.resetLog()
 	lw := &eventLogWriter{app: a}
-	onProgress := func(cur, tot int, name string) {
-		wailsruntime.EventsEmit(a.ctx, "progress:update", map[string]interface{}{
-			"current": cur, "total": tot, "filename": name,
-		})
-	}
 
-	a.watcher = StartWatch(opts.InputDir, outputDir, a.buildOrgOpts(opts), lw, onProgress, func(stats OrganizerStats) {
+	a.watcher = StartWatch(opts.InputDir, outputDir, a.buildOrgOpts(opts), lw, a.progressEmitter(), func(stats OrganizerStats) {
 		msg := fmt.Sprintf("Ultima scansione: %d file elaborati", stats.Moved+stats.Skipped)
 		wailsruntime.EventsEmit(a.ctx, "watch:status", msg)
 		wailsruntime.EventsEmit(a.ctx, "organize:done", a.buildResult(stats))
@@ -310,6 +424,7 @@ func (a *App) HandleDrop(paths []string) string {
 	for _, p := range paths {
 		if info, err := os.Stat(p); err == nil && info.IsDir() {
 			a.prefs.InputDir = p
+			a.pushRecent(p)
 			a.savePrefs()
 			return p
 		}
@@ -334,12 +449,7 @@ func (a *App) Dedupe(inputDir string, dryRun bool) {
 			inputDir = a.prefs.InputDir
 		}
 		lw := &eventLogWriter{app: a}
-		onProgress := func(cur, tot int, name string) {
-			wailsruntime.EventsEmit(a.ctx, "progress:update", map[string]interface{}{
-				"current": cur, "total": tot, "filename": name,
-			})
-		}
-		stats, err := dedupePhotos(ctx, inputDir, dryRun, onProgress, lw)
+		stats, err := dedupePhotos(ctx, inputDir, dryRun, a.progressEmitter(), lw)
 		result := DedupeResult{
 			Scanned: stats.Scanned,
 			Groups:  stats.Groups,
