@@ -1,70 +1,148 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme — Linear-like clean */
+    --bg:        0 0% 100%;
+    --surface:   0 0% 98%;
+    --elevated:  0 0% 100%;
+    --border:    220 13% 91%;
+    --text:      222 47% 11%;
+    --muted:     220 9% 46%;
+    --subtle:    220 14% 96%;
+    --accent:    221 83% 53%;
+    --accent-fg: 0 0% 100%;
+    --success:   142 71% 45%;
+    --warning:   38 92% 50%;
+    --danger:    0 84% 60%;
+    --radius:    8px;
+  }
+
+  .dark {
+    --bg:        222 25% 8%;
+    --surface:   220 22% 11%;
+    --elevated:  220 18% 14%;
+    --border:    220 14% 20%;
+    --text:      210 20% 96%;
+    --muted:     220 9% 60%;
+    --subtle:    220 18% 14%;
+    --accent:    217 91% 60%;
+    --accent-fg: 0 0% 100%;
+    --success:   142 71% 50%;
+    --warning:   38 92% 55%;
+    --danger:    0 84% 65%;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body, #app {
+    height: 100%;
+    overflow: hidden;
+    @apply bg-bg text-text font-sans antialiased;
+    font-size: 13px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted;
+  }
+
+  /* Focus ring */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg;
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    @apply ring-2 ring-accent ring-offset-2 ring-offset-bg;
+  }
+
+  /* Reset button */
+  button {
+    @apply font-sans;
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
-:root {
-  --bg:         #111827;
-  --surface:    #1f2937;
-  --border:     #374151;
-  --text:       #f9fafb;
-  --text-muted: #9ca3af;
-  --accent:     #3b82f6;
-  --accent-h:   #2563eb;
-  --danger:     #ef4444;
-  --danger-h:   #dc2626;
-  --success:    #22c55e;
-  --radius:     8px;
-  --shadow:     0 1px 3px rgba(0,0,0,.4);
-}
+@layer components {
+  /* Pulsanti */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium
+           transition-all duration-150 select-none whitespace-nowrap
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-sm  { @apply h-7 px-2.5; }
+  .btn-md  { @apply h-8 px-3; }
+  .btn-lg  { @apply h-9 px-4; }
 
-html, body, #app {
-  height: 100%;
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  background: var(--bg);
-  color: var(--text);
-  -webkit-font-smoothing: antialiased;
-}
+  .btn-primary {
+    @apply bg-accent text-accent-fg shadow-sm
+           hover:brightness-110 active:brightness-95;
+  }
+  .btn-danger {
+    @apply bg-danger text-white shadow-sm
+           hover:brightness-110 active:brightness-95;
+  }
+  .btn-secondary {
+    @apply bg-subtle text-text border border-border
+           hover:bg-elevated active:brightness-95;
+  }
+  .btn-ghost {
+    @apply text-muted hover:bg-subtle hover:text-text;
+  }
 
-/* scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  /* Input */
+  .input {
+    @apply h-8 w-full rounded-md border border-border bg-bg px-2.5 text-[13px] text-text
+           placeholder:text-muted
+           focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30
+           disabled:opacity-50 disabled:cursor-not-allowed
+           transition-colors;
+  }
 
-button {
-  cursor: pointer;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  padding: 6px 14px;
-  transition: background .15s, opacity .15s;
-}
-button:disabled { opacity: .4; cursor: not-allowed; }
+  /* Card */
+  .card {
+    @apply bg-surface border border-border rounded-lg;
+  }
 
-input[type="text"] {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 13px;
-  font-family: inherit;
-  padding: 5px 10px;
-  width: 100%;
-  outline: none;
-  transition: border-color .15s;
-}
-input[type="text"]:focus { border-color: var(--accent); }
-input[type="text"]:disabled { opacity: .4; }
+  /* Chip / Tag */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded h-5 px-1.5 text-[11px]
+           bg-subtle text-muted border border-border
+           font-mono;
+  }
+  .chip-interactive {
+    @apply cursor-pointer hover:bg-elevated hover:text-text hover:border-accent/50
+           active:brightness-95 transition-colors;
+  }
 
-input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
+  /* Kbd */
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded
+           text-[10px] font-mono text-muted bg-subtle border border-border;
+  }
+
+  /* Tab trigger */
+  .tab-trigger {
+    @apply relative inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[13px] font-medium
+           text-muted hover:text-text hover:bg-subtle
+           transition-colors;
+  }
+  .tab-trigger[data-active="true"] {
+    @apply text-text bg-subtle;
+  }
 }
