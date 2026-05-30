@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rwcarlsen/goexif/exif"
@@ -50,6 +52,7 @@ type OrganizerOptions struct {
 	CleanEmptyDirs  bool   // rimuovi cartelle vuote dopo lo spostamento
 	FolderFormat    string // formato Go time per la cartella data (es. "2006_01_02")
 	FileTemplate    string // template nome file (es. "photo_{date}_{time}")
+	Workers         int    // goroutine parallele (0 = auto)
 }
 
 // OrganizerStats raccoglie le statistiche dell'operazione.
@@ -488,148 +491,171 @@ func organizePhotos(ctx context.Context, inputDir, outputDir string, opts Organi
 
 	needsCamera := strings.Contains(opts.FileTemplate, "{camera}")
 
-	for i, photo := range photos {
-		if ctx.Err() != nil {
-			fmt.Fprintln(w, "\n⚠ Operazione annullata.")
-			return stats, nil
-		}
+	numWorkers := opts.Workers
+	if numWorkers <= 0 {
+		numWorkers = min(runtime.NumCPU(), 8)
+	}
 
-		if progress != nil {
-			progress(i+1, len(photos), filepath.Base(photo))
-		}
+	jobs := make(chan string, numWorkers*2)
 
-		ext := strings.ToLower(filepath.Ext(photo))
-		isRaw := rawExtensions[ext]
-		name := filepath.Base(photo)
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex  // guarda w + stats
+		ioMu    sync.Mutex  // serializza resolveConflict + mkdir + transfer
+		counter atomic.Int32
+	)
 
-		if dc != nil {
-			isDupe, firstSeen, hashErr := dc.check(photo)
-			if hashErr == nil && isDupe {
-				fmt.Fprintf(w, "  duplicato  %s\n         = %s\n\n", name, filepath.Base(firstSeen))
-				stats.Dupes++
-				continue
-			}
-		}
-
-		dt, hasExif := getExifDatetime(photo)
-		modTimeUsed := false
-		if !hasExif && opts.ModTimeFallback {
-			if info, statErr := os.Stat(photo); statErr == nil {
-				dt = info.ModTime()
-				hasExif = true
-				modTimeUsed = true
-			}
-		}
-
-		categoria := "foto"
-		if isRaw {
-			categoria = "RAW "
-		}
-
-		// ── Rename-only mode ──────────────────────────────────────────────────
-		if opts.RenameOnly {
-			if !hasExif {
-				fmt.Fprintf(w, "  saltato  %s  (nessuna data disponibile)\n\n", name)
-				stats.Skipped++
-				continue
-			}
-
-			camera := ""
-			if needsCamera {
-				camera = getExifCamera(photo)
-			}
-
-			var notes []string
-			if opts.StripMeta && !isRaw && (ext == ".jpg" || ext == ".jpeg") {
-				notes = append(notes, "metadati rimossi")
-			}
-			if modTimeUsed {
-				notes = append(notes, "data da filesystem")
-			}
-			noteStr := ""
-			if len(notes) > 0 {
-				noteStr = "  [" + strings.Join(notes, ", ") + "]"
-			}
-
-			tpl := opts.FileTemplate
-			if tpl == "" {
-				tpl = "photo_{date}_{time}"
-			}
-			newName := buildFilename(tpl, dt, camera, ext)
-			fmt.Fprintf(w, "  %s  %s%s\n         %s\n         → %s\n\n",
-				categoria, name, noteStr, formatDatetimeHuman(dt), newName)
-
-			if !opts.DryRun {
-				if _, err := renameInPlace(photo, dt, camera, opts); err != nil {
-					return stats, err
+	for range numWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for photo := range jobs {
+				if ctx.Err() != nil {
+					return
 				}
-			}
-			stats.Moved++
-			stats.ByYear[dt.Year()]++
-			if isRaw {
-				stats.Raw++
-			} else {
-				stats.Altri++
-			}
-			continue
-		}
 
-		// ── Organizzazione standard ───────────────────────────────────────────
-		if !hasExif {
-			dest := resolveConflict(filepath.Join(outputDir, "senza_data", name))
-			rel, _ := filepath.Rel(outputDir, dest)
-			fmt.Fprintf(w, "  senza data  %s\n         → %s\n\n", name, rel)
-			if !opts.DryRun {
-				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-					return stats, err
+				ext := strings.ToLower(filepath.Ext(photo))
+				isRaw := rawExtensions[ext]
+				name := filepath.Base(photo)
+
+				// ── Phase 1: letture parallele (nessun lock esterno) ──────────────────
+				if dc != nil {
+					isDupe, firstSeen, hashErr := dc.check(photo)
+					if hashErr == nil && isDupe {
+						cur := int(counter.Add(1))
+						if progress != nil {
+							progress(cur, len(photos), name)
+						}
+						mu.Lock()
+						fmt.Fprintf(w, "  duplicato  %s\n         = %s\n\n", name, filepath.Base(firstSeen))
+						stats.Dupes++
+						mu.Unlock()
+						continue
+					}
 				}
-				if err := transferFile(photo, dest, opts); err != nil {
-					return stats, err
+
+				dt, hasExif := getExifDatetime(photo)
+				modTimeUsed := false
+				if !hasExif && opts.ModTimeFallback {
+					if info, statErr := os.Stat(photo); statErr == nil {
+						dt = info.ModTime()
+						hasExif = true
+						modTimeUsed = true
+					}
 				}
+
+				camera := ""
+				if needsCamera && hasExif {
+					camera = getExifCamera(photo)
+				}
+
+				cur := int(counter.Add(1))
+				if progress != nil {
+					progress(cur, len(photos), name)
+				}
+
+				categoria := "foto"
+				if isRaw {
+					categoria = "RAW "
+				}
+
+				noteStr := buildNoteStr(opts, isRaw, ext, modTimeUsed)
+
+				// ── Rename-only mode ──────────────────────────────────────────────────
+				if opts.RenameOnly {
+					if !hasExif {
+						mu.Lock()
+						fmt.Fprintf(w, "  saltato  %s  (nessuna data disponibile)\n\n", name)
+						stats.Skipped++
+						mu.Unlock()
+						continue
+					}
+					tpl := opts.FileTemplate
+					if tpl == "" {
+						tpl = "photo_{date}_{time}"
+					}
+					newName := buildFilename(tpl, dt, camera, ext)
+					logLine := fmt.Sprintf("  %s  %s%s\n         %s\n         → %s\n\n",
+						categoria, name, noteStr, formatDatetimeHuman(dt), newName)
+					if !opts.DryRun {
+						ioMu.Lock()
+						_, renErr := renameInPlace(photo, dt, camera, opts)
+						ioMu.Unlock()
+						if renErr != nil {
+							logLine = fmt.Sprintf("  errore  %s: %v\n\n", name, renErr)
+						}
+					}
+					mu.Lock()
+					fmt.Fprint(w, logLine)
+					stats.Moved++
+					stats.ByYear[dt.Year()]++
+					if isRaw {
+						stats.Raw++
+					} else {
+						stats.Altri++
+					}
+					mu.Unlock()
+					continue
+				}
+
+				// ── Organizzazione standard ───────────────────────────────────────────
+				if !hasExif {
+					ioMu.Lock()
+					dest := resolveConflict(filepath.Join(outputDir, "senza_data", name))
+					rel, _ := filepath.Rel(outputDir, dest)
+					if !opts.DryRun {
+						os.MkdirAll(filepath.Dir(dest), 0o755)   //nolint:errcheck
+						transferFile(photo, dest, opts)           //nolint:errcheck
+					}
+					ioMu.Unlock()
+					mu.Lock()
+					fmt.Fprintf(w, "  senza data  %s\n         → %s\n\n", name, rel)
+					stats.Skipped++
+					mu.Unlock()
+					continue
+				}
+
+				dest := buildDestPath(outputDir, dt, ext, isRaw, camera, opts)
+
+				ioMu.Lock()
+				dest = resolveConflict(dest)
+				rel, _ := filepath.Rel(outputDir, dest)
+				if !opts.DryRun {
+					os.MkdirAll(filepath.Dir(dest), 0o755) //nolint:errcheck
+					transferFile(photo, dest, opts)        //nolint:errcheck
+				}
+				ioMu.Unlock()
+
+				mu.Lock()
+				fmt.Fprintf(w, "  %s  %s%s\n         %s\n         → %s\n\n",
+					categoria, name, noteStr, formatDatetimeHuman(dt), rel)
+				stats.Moved++
+				stats.ByYear[dt.Year()]++
+				if isRaw {
+					stats.Raw++
+				} else {
+					stats.Altri++
+				}
+				mu.Unlock()
 			}
-			stats.Skipped++
-			continue
-		}
+		}()
+	}
 
-		camera := ""
-		if needsCamera {
-			camera = getExifCamera(photo)
+	// Invia job; interrompe se il context viene cancellato
+	for _, p := range photos {
+		select {
+		case jobs <- p:
+		case <-ctx.Done():
+			goto drain
 		}
+	}
+drain:
+	close(jobs)
+	wg.Wait()
 
-		dest := resolveConflict(buildDestPath(outputDir, dt, ext, isRaw, camera, opts))
-
-		var notes []string
-		if opts.StripMeta && !isRaw && (ext == ".jpg" || ext == ".jpeg") {
-			notes = append(notes, "metadati rimossi")
-		}
-		if modTimeUsed {
-			notes = append(notes, "data da filesystem")
-		}
-		noteStr := ""
-		if len(notes) > 0 {
-			noteStr = "  [" + strings.Join(notes, ", ") + "]"
-		}
-
-		rel, _ := filepath.Rel(outputDir, dest)
-		fmt.Fprintf(w, "  %s  %s%s\n         %s\n         → %s\n\n",
-			categoria, name, noteStr, formatDatetimeHuman(dt), rel)
-
-		if !opts.DryRun {
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-				return stats, err
-			}
-			if err := transferFile(photo, dest, opts); err != nil {
-				return stats, err
-			}
-		}
-
-		stats.Moved++
-		stats.ByYear[dt.Year()]++
-		if isRaw {
-			stats.Raw++
-		} else {
-			stats.Altri++
-		}
+	if ctx.Err() != nil {
+		fmt.Fprintln(w, "\n⚠ Operazione annullata.")
+		return stats, nil
 	}
 
 	// ── Pulizia cartelle vuote ────────────────────────────────────────────────
@@ -674,4 +700,190 @@ func organizePhotos(ctx context.Context, inputDir, outputDir string, opts Organi
 	}
 
 	return stats, nil
+}
+
+// DedupeStats raccoglie le statistiche dell'operazione di deduplicazione.
+type DedupeStats struct {
+	Scanned    int
+	Groups     int
+	Removed    int
+	FreedBytes int64
+}
+
+type fileData struct {
+	path string
+	size int64
+	hash string
+	ext  string // normalizzata, es. ".jpg"
+}
+
+func dedupePhotos(ctx context.Context, inputDir string, dryRun bool, progress ProgressFunc, w io.Writer) (DedupeStats, error) {
+	var photos []string
+	filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		name := info.Name()
+		if strings.HasPrefix(name, "._") {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if rawExtensions[ext] || otherExtensions[ext] {
+			abs, absErr := filepath.Abs(path)
+			if absErr == nil {
+				photos = append(photos, abs)
+			}
+		}
+		return nil
+	})
+
+	stats := DedupeStats{Scanned: len(photos)}
+	if len(photos) == 0 {
+		fmt.Fprintln(w, "Nessuna foto trovata.")
+		return stats, nil
+	}
+
+	fmt.Fprintf(w, "Scansione di %d foto in corso…\n\n", len(photos))
+
+	collected := make([]fileData, 0, len(photos))
+	var collMu sync.Mutex
+	var wg sync.WaitGroup
+	var ctr atomic.Int32
+
+	numWorkers := min(runtime.NumCPU(), 8)
+	jobs := make(chan string, numWorkers*2)
+
+	for range numWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				h, err := fileHash(path)
+				if err != nil {
+					ctr.Add(1)
+					continue
+				}
+				var size int64
+				if info, statErr := os.Stat(path); statErr == nil {
+					size = info.Size()
+				}
+				ext := strings.ToLower(filepath.Ext(path))
+				collMu.Lock()
+				collected = append(collected, fileData{path, size, h, ext})
+				collMu.Unlock()
+				cur := int(ctr.Add(1))
+				if progress != nil {
+					progress(cur, len(photos), filepath.Base(path))
+				}
+			}
+		}()
+	}
+
+	for _, p := range photos {
+		if ctx.Err() != nil {
+			break
+		}
+		jobs <- p
+	}
+	close(jobs)
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		fmt.Fprintln(w, "\n⚠ Operazione annullata.")
+		return stats, nil
+	}
+
+	// Due file sono duplicati se hanno stesso hash e stessa estensione.
+	// (stesso hash implica stesso contenuto, quindi stessi metadati EXIF)
+	groups := make(map[string][]fileData)
+	for _, fd := range collected {
+		key := fd.hash + "|" + fd.ext
+		groups[key] = append(groups[key], fd)
+	}
+
+	// Ordine deterministico
+	keys := make([]string, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		files := groups[k]
+		if len(files) < 2 {
+			continue
+		}
+		stats.Groups++
+
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].path < files[j].path
+		})
+
+		keep := files[0]
+		relKeep, _ := filepath.Rel(inputDir, keep.path)
+		fmt.Fprintf(w, "  mantieni  %s\n", relKeep)
+
+		for _, dup := range files[1:] {
+			relDup, _ := filepath.Rel(inputDir, dup.path)
+			if dryRun {
+				stats.Removed++
+				stats.FreedBytes += dup.size
+				fmt.Fprintf(w, "  ↳ dupl.   %s\n", relDup)
+			} else {
+				if err := os.Remove(dup.path); err != nil {
+					fmt.Fprintf(w, "  errore    %s: %v\n", relDup, err)
+					continue
+				}
+				stats.Removed++
+				stats.FreedBytes += dup.size
+				fmt.Fprintf(w, "  rimosso   %s\n", relDup)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	if stats.Groups == 0 {
+		fmt.Fprintln(w, "Nessun duplicato trovato.")
+		return stats, nil
+	}
+
+	fmt.Fprintln(w, strings.Repeat("─", 50))
+	verb := "da rimuovere"
+	if !dryRun {
+		verb = "rimossi"
+	}
+	fmt.Fprintf(w, "  %d gruppi  ·  %d file %s  ·  %s liberati\n",
+		stats.Groups, stats.Removed, verb, formatBytes(stats.FreedBytes))
+
+	return stats, nil
+}
+
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+func buildNoteStr(opts OrganizerOptions, isRaw bool, ext string, modTimeUsed bool) string {
+	var notes []string
+	if opts.StripMeta && !isRaw && (ext == ".jpg" || ext == ".jpeg") {
+		notes = append(notes, "metadati rimossi")
+	}
+	if modTimeUsed {
+		notes = append(notes, "data da filesystem")
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return "  [" + strings.Join(notes, ", ") + "]"
 }

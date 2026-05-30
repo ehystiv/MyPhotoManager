@@ -1,30 +1,31 @@
-APP_NAME  := MyPhotoManager
-BINARY    := myphoto
-FYNE      := ~/go/bin/fyne
+APP_NAME := MyPhotoManager
+BINARY   := myphoto
+WAILS    := ~/go/bin/wails
 
-.PHONY: all build app clean run install
+.PHONY: all dev build app clean install
 
 ## Default: crea il bundle .app
 all: app
 
-## Compila il binario grezzo (senza bundle)
+## Avvia in modalità sviluppo con hot-reload
+dev:
+	$(WAILS) dev
+
+## Compila il binario con frontend integrato
 build:
-	go build -o $(BINARY) ./...
+	$(WAILS) build
 
-## Crea il bundle .app macOS (doppio clic, niente terminale)
+## Crea il bundle .app macOS
 app:
-	$(FYNE) package -os darwin -name "$(APP_NAME)"
-
-## Esegui direttamente (con terminale, utile per debug)
-run:
-	go run ./...
+	$(WAILS) build -platform darwin/arm64 -o $(BINARY)
 
 ## Copia il .app in /Applications
 install: app
-	cp -r $(APP_NAME).app /Applications/$(APP_NAME).app
-	@echo "✅ Installato in /Applications/$(APP_NAME).app"
+	cp -r build/bin/$(APP_NAME).app /Applications/$(APP_NAME).app
+	@echo "Installato in /Applications/$(APP_NAME).app"
 
 ## Rimuove artefatti di build
 clean:
-	rm -f $(BINARY)
-	rm -rf $(APP_NAME).app
+	rm -rf build/bin
+	rm -rf frontend/dist
+	rm -rf frontend/node_modules
