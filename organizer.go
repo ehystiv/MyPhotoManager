@@ -224,6 +224,49 @@ func fileHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
+// moveToTrash sposta path nel cestino macOS (~/.Trash). Su altri OS rimuove definitivamente.
+// Restituisce errore solo per problemi gravi; conflitti di nome vengono risolti automaticamente.
+func moveToTrash(path string) error {
+	if runtime.GOOS != "darwin" {
+		return os.Remove(path)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return os.Remove(path)
+	}
+	trash := filepath.Join(home, ".Trash")
+	if err := os.MkdirAll(trash, 0o755); err != nil {
+		return os.Remove(path)
+	}
+	name := filepath.Base(path)
+	dst := filepath.Join(trash, name)
+	if _, err := os.Stat(dst); err == nil {
+		ext := filepath.Ext(name)
+		stem := strings.TrimSuffix(name, ext)
+		ts := time.Now().Format("20060102_150405")
+		for i := 0; ; i++ {
+			var candidate string
+			if i == 0 {
+				candidate = filepath.Join(trash, fmt.Sprintf("%s %s%s", stem, ts, ext))
+			} else {
+				candidate = filepath.Join(trash, fmt.Sprintf("%s %s_%d%s", stem, ts, i, ext))
+			}
+			if _, err := os.Stat(candidate); os.IsNotExist(err) {
+				dst = candidate
+				break
+			}
+		}
+	}
+	if err := os.Rename(path, dst); err != nil {
+		// Cross-volume: copia + rimuovi.
+		if copyErr := copyFile(path, dst); copyErr != nil {
+			return copyErr
+		}
+		return os.Remove(path)
+	}
+	return nil
+}
+
 func moveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
@@ -833,13 +876,13 @@ func dedupePhotos(ctx context.Context, inputDir string, dryRun bool, progress Pr
 				stats.FreedBytes += dup.size
 				fmt.Fprintf(w, "  ↳ dupl.   %s\n", relDup)
 			} else {
-				if err := os.Remove(dup.path); err != nil {
+				if err := moveToTrash(dup.path); err != nil {
 					fmt.Fprintf(w, "  errore    %s: %v\n", relDup, err)
 					continue
 				}
 				stats.Removed++
 				stats.FreedBytes += dup.size
-				fmt.Fprintf(w, "  rimosso   %s\n", relDup)
+				fmt.Fprintf(w, "  → cestino %s\n", relDup)
 			}
 		}
 		fmt.Fprintln(w)
@@ -851,9 +894,9 @@ func dedupePhotos(ctx context.Context, inputDir string, dryRun bool, progress Pr
 	}
 
 	fmt.Fprintln(w, strings.Repeat("─", 50))
-	verb := "da rimuovere"
+	verb := "da spostare nel cestino"
 	if !dryRun {
-		verb = "rimossi"
+		verb = "spostati nel cestino"
 	}
 	fmt.Fprintf(w, "  %d gruppi  ·  %d file %s  ·  %s liberati\n",
 		stats.Groups, stats.Removed, verb, formatBytes(stats.FreedBytes))
