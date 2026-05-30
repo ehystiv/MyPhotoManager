@@ -38,6 +38,7 @@ jobs:
             platform: linux/amd64
             artifact: MyPhotoManager-linux-amd64
             bundle_path: build/bin/myphoto
+            build_tags: webkit2_41
           - name: Windows (amd64)
             os: windows-latest
             platform: windows/amd64
@@ -79,7 +80,13 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: wails build -platform ${{ matrix.platform }} -clean
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.build_tags }}" ]; then
+            wails build -platform ${{ matrix.platform }} -clean -tags ${{ matrix.build_tags }}
+          else
+            wails build -platform ${{ matrix.platform }} -clean
+          fi
 
       - name: Package macOS bundle (zip)
         if: runner.os == 'macOS'
