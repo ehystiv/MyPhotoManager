@@ -28,11 +28,6 @@ jobs:
             platform: darwin/arm64
             artifact: MyPhotoManager-macos-arm64
             bundle_path: build/bin/MyPhotoManager.app
-          - name: macOS (amd64)
-            os: macos-13
-            platform: darwin/amd64
-            artifact: MyPhotoManager-macos-amd64
-            bundle_path: build/bin/MyPhotoManager.app
           - name: Linux (amd64)
             os: ubuntu-latest
             platform: linux/amd64
