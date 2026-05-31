@@ -83,10 +83,14 @@ jobs:
             wails build -platform ${{ matrix.platform }} -clean
           fi
 
+      - name: Sign macOS bundle (ad-hoc)
+        if: runner.os == 'macOS'
+        run: codesign --deep --force --sign - build/bin/MyPhotoManager.app
+
       - name: Package macOS bundle (zip)
         if: runner.os == 'macOS'
         working-directory: build/bin
-        run: zip -r MyPhotoManager.app.zip MyPhotoManager.app
+        run: ditto -c -k --keepParent MyPhotoManager.app MyPhotoManager.app.zip
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
