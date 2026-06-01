@@ -13,6 +13,7 @@
   height: 28px;
   flex-shrink: 0;
   background: hsl(var(--bg));
-  -webkit-app-region: drag;
+  /* Wails v2 riconosce questa proprietà come drag region (default CSSDragProperty). */
+  --wails-draggable: drag;
 }
 </style>

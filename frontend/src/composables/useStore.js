@@ -24,6 +24,7 @@ const DEFAULTS = {
   cleanDirs: false,
   folderFmt: '2006_01_02',
   fileTpl: 'photo_{date}_{time}',
+  rawSplit: '',
   recents: [],
   confirmedUnsafeOnce: false,
 }

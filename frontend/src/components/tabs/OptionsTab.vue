@@ -15,6 +15,24 @@ const lastFocused = ref('file')
 
 const TOKENS = ['{date}', '{time}', '{datetime}', '{year}', '{month}', '{day}', '{camera}']
 
+const RAW_SPLITS = [
+  { value: '',            label: 'Disattivata' },
+  { value: 'camera',      label: 'Fotocamera (marca + modello)' },
+  { value: 'lens',        label: 'Obiettivo' },
+  { value: 'iso',         label: 'ISO (a fasce)' },
+  { value: 'camera_lens', label: 'Fotocamera → Obiettivo' },
+]
+
+const rawSplitExample = computed(() => {
+  switch (state.prefs.rawSplit) {
+    case 'camera':      return 'Sony_ILCE-7M4/'
+    case 'lens':        return 'FE_24-70mm_F2.8_GM/'
+    case 'iso':         return 'iso_200-800/'
+    case 'camera_lens': return 'Sony_ILCE-7M4/FE_24-70mm/'
+    default:            return ''
+  }
+})
+
 const folderWarning = computed(() => {
   const v = state.prefs.folderFmt || ''
   if (state.prefs.renameOnly) return ''
@@ -210,7 +228,53 @@ function insertToken(token) {
           <ArrowRight :size="13" />
           <code>
             <span class="dim">{{ state.prefs.outputDir || state.prefs.inputDir || '/output' }}/</span>
-            <span class="hl">altri/</span>
+            <span class="hl">jpg/</span>
+            <span class="hl">{{ preview.folder }}/</span>
+            <span class="strong">{{ preview.file }}</span>
+          </code>
+        </div>
+      </div>
+    </section>
+
+    <!-- Opzioni avanzate -->
+    <section>
+      <header class="sec-head">
+        <h3>Opzioni avanzate</h3>
+        <p>Suddivisione extra applicata <strong>solo ai RAW</strong>: gli altri formati non hanno questi metadati.</p>
+      </header>
+
+      <div class="field">
+        <label>Suddividi i RAW per metadato</label>
+        <select
+          class="input select"
+          v-model="state.prefs.rawSplit"
+          @change="onCheckChange"
+          :disabled="state.prefs.renameOnly"
+        >
+          <option v-for="o in RAW_SPLITS" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+
+        <Transition name="hint">
+          <div v-if="state.prefs.renameOnly" class="hint" data-level="info">
+            <Info :size="11" />
+            Non applicabile in modalità Rinomina in-place.
+          </div>
+          <div v-else-if="state.prefs.rawSplit" class="hint" data-level="info">
+            <Info :size="11" />
+            I RAW privi di questo metadato finiranno in <code>sconosciuto/</code>.
+          </div>
+        </Transition>
+      </div>
+
+      <!-- Anteprima struttura RAW -->
+      <div class="preview" v-if="state.prefs.rawSplit && !state.prefs.renameOnly">
+        <span class="preview-label">Anteprima RAW</span>
+        <div class="preview-path">
+          <ArrowRight :size="13" />
+          <code>
+            <span class="dim">{{ state.prefs.outputDir || state.prefs.inputDir || '/output' }}/</span>
+            <span class="hl">raw/</span>
+            <span class="hl">{{ rawSplitExample }}</span>
             <span class="hl">{{ preview.folder }}/</span>
             <span class="strong">{{ preview.file }}</span>
           </code>
@@ -229,6 +293,7 @@ function insertToken(token) {
 
 <style scoped>
 .options-tab {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -236,6 +301,8 @@ function insertToken(token) {
   max-width: 760px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 section {
   display: flex;
@@ -286,6 +353,17 @@ section {
 .input.has-warn:focus { border-color: hsl(var(--warning)); }
 .input.has-err  { border-color: hsl(var(--danger)  / .6); }
 .input.has-err:focus  { border-color: hsl(var(--danger)); }
+
+.input.select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+.input.select:disabled { cursor: not-allowed; opacity: .55; }
 
 .hint {
   display: inline-flex;

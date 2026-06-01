@@ -30,6 +30,7 @@ type Prefs struct {
 	CleanDirs           bool     `json:"cleanDirs"`
 	FolderFmt           string   `json:"folderFmt"`
 	FileTpl             string   `json:"fileTpl"`
+	RawSplit            string   `json:"rawSplit"`
 	Recents             []string `json:"recents"`
 	ConfirmedUnsafeOnce bool     `json:"confirmedUnsafeOnce"`
 }
@@ -54,6 +55,11 @@ type YearStat struct {
 	Count int `json:"count"`
 }
 
+type CategoryStat struct {
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
 type DedupeResult struct {
 	Scanned int    `json:"scanned"`
 	Groups  int    `json:"groups"`
@@ -64,14 +70,16 @@ type DedupeResult struct {
 }
 
 type OrganizeResult struct {
-	Moved   int        `json:"moved"`
-	Raw     int        `json:"raw"`
-	Others  int        `json:"others"`
-	Skipped int        `json:"skipped"`
-	Dupes   int        `json:"dupes"`
-	Cleaned int        `json:"cleaned"`
-	ByYear  []YearStat `json:"byYear"`
-	Err     string     `json:"err,omitempty"`
+	Moved      int            `json:"moved"`
+	Raw        int            `json:"raw"`
+	Others     int            `json:"others"`
+	Skipped    int            `json:"skipped"`
+	Dupes      int            `json:"dupes"`
+	Cleaned    int            `json:"cleaned"`
+	Migrated   int            `json:"migrated"`
+	ByYear     []YearStat     `json:"byYear"`
+	ByCategory []CategoryStat `json:"byCategory"`
+	Err        string         `json:"err,omitempty"`
 }
 
 type App struct {
@@ -194,7 +202,7 @@ func (a *App) FormatPreview(folderFmt, fileTpl string) FormatPreviewResult {
 	return FormatPreviewResult{
 		Folder: folder,
 		File:   file,
-		Full:   filepath.Join("altri", folder, file),
+		Full:   filepath.Join(otherCategory(".jpg"), folder, file),
 	}
 }
 
@@ -293,17 +301,19 @@ func (a *App) buildOrgOpts(p Prefs) OrganizerOptions {
 		CleanEmptyDirs:  p.CleanDirs,
 		FolderFormat:    p.FolderFmt,
 		FileTemplate:    p.FileTpl,
+		RawSplit:        p.RawSplit,
 	}
 }
 
 func (a *App) buildResult(stats OrganizerStats) OrganizeResult {
 	result := OrganizeResult{
-		Moved:   stats.Moved,
-		Raw:     stats.Raw,
-		Others:  stats.Altri,
-		Skipped: stats.Skipped,
-		Dupes:   stats.Dupes,
-		Cleaned: stats.Cleaned,
+		Moved:    stats.Moved,
+		Raw:      stats.Raw,
+		Others:   stats.Altri,
+		Skipped:  stats.Skipped,
+		Dupes:    stats.Dupes,
+		Cleaned:  stats.Cleaned,
+		Migrated: stats.Migrated,
 	}
 	years := make([]int, 0, len(stats.ByYear))
 	for y := range stats.ByYear {
@@ -312,6 +322,19 @@ func (a *App) buildResult(stats OrganizerStats) OrganizeResult {
 	sort.Sort(sort.Reverse(sort.IntSlice(years)))
 	for _, y := range years {
 		result.ByYear = append(result.ByYear, YearStat{Year: y, Count: stats.ByYear[y]})
+	}
+	cats := make([]string, 0, len(stats.ByCategory))
+	for c := range stats.ByCategory {
+		cats = append(cats, c)
+	}
+	sort.Slice(cats, func(i, j int) bool {
+		if stats.ByCategory[cats[i]] != stats.ByCategory[cats[j]] {
+			return stats.ByCategory[cats[i]] > stats.ByCategory[cats[j]]
+		}
+		return cats[i] < cats[j]
+	})
+	for _, c := range cats {
+		result.ByCategory = append(result.ByCategory, CategoryStat{Category: c, Count: stats.ByCategory[c]})
 	}
 	return result
 }

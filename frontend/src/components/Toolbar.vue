@@ -195,6 +195,14 @@ function pickRecent(dir) {
   padding: 0 12px;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--bg));
+  /* Le aree vuote della toolbar trascinano la finestra. */
+  --wails-draggable: drag;
+}
+/* Gli elementi interattivi non devono trascinare (la proprietà eredita). */
+.toolbar button,
+.toolbar input,
+.toolbar .dir-btn {
+  --wails-draggable: no-drag;
 }
 .dir-block {
   display: flex;

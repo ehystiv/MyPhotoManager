@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useStore } from '../../composables/useStore'
 import {
-  FolderOpen, Image, Layers, SkipForward, Copy as CopyIcon, Trash2, BarChart3,
+  FolderOpen, Image, Layers, SkipForward, Copy as CopyIcon, Trash2, BarChart3, FolderTree,
 } from '@lucide/vue'
 import { vAutoAnimate } from '@formkit/auto-animate/vue'
 
@@ -20,12 +20,18 @@ const totals = computed(() => {
     { key: 'skipped', label: 'Senza data',  value: s.skipped, icon: SkipForward,  color: 'warning' },
     { key: 'dupes',   label: 'Duplicati',   value: s.dupes,   icon: CopyIcon,     color: 'muted' },
     { key: 'cleaned', label: 'Cartelle vuote rimosse', value: s.cleaned, icon: Trash2, color: 'muted' },
+    { key: 'migrated', label: 'Migrati da altri/', value: s.migrated, icon: FolderTree, color: 'muted' },
   ].filter(t => t.value > 0)
 })
 
 const maxYear = computed(() => {
   if (!stats.value?.byYear?.length) return 1
   return Math.max(...stats.value.byYear.map(y => y.count))
+})
+
+const maxCat = computed(() => {
+  if (!stats.value?.byCategory?.length) return 1
+  return Math.max(...stats.value.byCategory.map(c => c.count))
 })
 </script>
 
@@ -43,6 +49,22 @@ const maxYear = computed(() => {
         <component :is="t.icon" :size="14" class="total-icon" />
         <div class="total-num">{{ t.value }}</div>
         <div class="total-label">{{ t.label }}</div>
+      </div>
+    </div>
+
+    <div class="years" v-if="stats.byCategory?.length">
+      <div class="years-head">
+        <FolderTree :size="13" />
+        <span>Per tipo</span>
+      </div>
+      <div class="years-list" v-auto-animate>
+        <div v-for="c in stats.byCategory" :key="c.category" class="year-row">
+          <span class="year cat">{{ c.category }}/</span>
+          <div class="bar-wrap">
+            <div class="bar" :style="{ width: (c.count / maxCat * 100) + '%' }"></div>
+          </div>
+          <span class="count">{{ c.count }}</span>
+        </div>
       </div>
     </div>
 

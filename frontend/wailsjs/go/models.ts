@@ -30,6 +30,7 @@ export namespace main {
 	    cleanDirs: boolean;
 	    folderFmt: string;
 	    fileTpl: string;
+	    rawSplit: string;
 	    recents: string[];
 	    confirmedUnsafeOnce: boolean;
 	
@@ -50,6 +51,7 @@ export namespace main {
 	        this.cleanDirs = source["cleanDirs"];
 	        this.folderFmt = source["folderFmt"];
 	        this.fileTpl = source["fileTpl"];
+	        this.rawSplit = source["rawSplit"];
 	        this.recents = source["recents"];
 	        this.confirmedUnsafeOnce = source["confirmedUnsafeOnce"];
 	    }

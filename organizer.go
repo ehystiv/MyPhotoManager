@@ -31,8 +31,45 @@ var otherExtensions = map[string]bool{
 	".webp": true,
 }
 
-var managedFolders = map[string]bool{
-	"raw": true, "altri": true, "senza_data": true,
+// otherCategory restituisce il nome della cartella per un file non-RAW,
+// derivato dall'estensione (senza punto). Alcune estensioni equivalenti
+// vengono normalizzate sotto un'unica cartella.
+func otherCategory(ext string) string {
+	e := strings.TrimPrefix(strings.ToLower(ext), ".")
+	switch e {
+	case "jpeg":
+		return "jpg"
+	case "tif":
+		return "tiff"
+	case "heif":
+		return "heic"
+	}
+	return e
+}
+
+// categoryFor restituisce la cartella di destinazione per un file:
+// "raw" per i formati RAW (uniti), altrimenti il nome derivato dall'estensione.
+func categoryFor(ext string, isRaw bool) string {
+	if isRaw {
+		return "raw"
+	}
+	return otherCategory(ext)
+}
+
+// managedFolders elenca i nomi delle cartelle gestite dall'app, escluse dalla
+// raccolta dei sorgenti e dalla pulizia delle cartelle vuote. Include "raw",
+// "senza_data", la storica "altri" (compatibilità) e una cartella per ogni
+// estensione non-RAW supportata (jpg, png, heic…).
+var managedFolders = buildManagedFolders()
+
+func buildManagedFolders() map[string]bool {
+	m := map[string]bool{
+		"raw": true, "altri": true, "senza_data": true,
+	}
+	for ext := range otherExtensions {
+		m[otherCategory(ext)] = true
+	}
+	return m
 }
 
 var giorni = []string{"lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"}
@@ -52,18 +89,21 @@ type OrganizerOptions struct {
 	CleanEmptyDirs  bool   // rimuovi cartelle vuote dopo lo spostamento
 	FolderFormat    string // formato Go time per la cartella data (es. "2006_01_02")
 	FileTemplate    string // template nome file (es. "photo_{date}_{time}")
+	RawSplit        string // suddivisione extra dei soli RAW per metadato: ""|camera|lens|iso|camera_lens
 	Workers         int    // goroutine parallele (0 = auto)
 }
 
 // OrganizerStats raccoglie le statistiche dell'operazione.
 type OrganizerStats struct {
-	Moved   int
-	Raw     int
-	Altri   int
-	Skipped int
-	Dupes   int
-	Cleaned int // cartelle vuote rimosse
-	ByYear  map[int]int
+	Moved      int
+	Raw        int
+	Altri      int
+	Skipped    int
+	Dupes      int
+	Cleaned    int            // cartelle vuote rimosse
+	Migrated   int            // file migrati dalla storica cartella altri/
+	ByYear     map[int]int
+	ByCategory map[string]int // conteggio per cartella di destinazione (raw, jpg, png…)
 }
 
 // ProgressFunc viene chiamata ad ogni file elaborato.
@@ -102,6 +142,47 @@ func getExifDatetime(path string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// sanitizeFolder normalizza una stringa in un nome cartella sicuro:
+// mantiene lettere/cifre/'-', sostituisce il resto con '_' e comprime le ripetizioni.
+func sanitizeFolder(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '_'
+	}, s)
+	for strings.Contains(s, "__") {
+		s = strings.ReplaceAll(s, "__", "_")
+	}
+	return strings.Trim(s, "_")
+}
+
+// exifString legge un tag EXIF come stringa (trimmata), "" se assente.
+func exifString(x *exif.Exif, name exif.FieldName) string {
+	tag, err := x.Get(name)
+	if err != nil {
+		return ""
+	}
+	s, err := tag.StringVal()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+// exifInt legge un tag EXIF come intero, 0 se assente.
+func exifInt(x *exif.Exif, name exif.FieldName) int {
+	tag, err := x.Get(name)
+	if err != nil {
+		return 0
+	}
+	v, err := tag.Int(0)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
 func getExifCamera(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -115,35 +196,92 @@ func getExifCamera(path string) string {
 	}
 
 	var parts []string
-	if tag, err := x.Get(exif.Make); err == nil {
-		if s, err := tag.StringVal(); err == nil {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				parts = append(parts, s)
-			}
-		}
+	if s := exifString(x, exif.Make); s != "" {
+		parts = append(parts, s)
 	}
-	if tag, err := x.Get(exif.Model); err == nil {
-		if s, err := tag.StringVal(); err == nil {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				parts = append(parts, s)
-			}
-		}
+	if s := exifString(x, exif.Model); s != "" {
+		parts = append(parts, s)
 	}
 
-	cam := strings.Join(parts, "_")
-	cam = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
-			return r
-		}
-		return '_'
-	}, cam)
-	cam = strings.Trim(cam, "_")
+	cam := sanitizeFolder(strings.Join(parts, "_"))
 	if cam == "" {
 		return "unknown"
 	}
 	return cam
+}
+
+// isoBand raggruppa il valore ISO in una fascia, per non generare una cartella per valore.
+func isoBand(iso int) string {
+	switch {
+	case iso <= 0:
+		return "sconosciuto"
+	case iso <= 200:
+		return "iso_0-200"
+	case iso <= 800:
+		return "iso_200-800"
+	case iso <= 3200:
+		return "iso_800-3200"
+	case iso <= 12800:
+		return "iso_3200-12800"
+	default:
+		return "iso_12800+"
+	}
+}
+
+// rawSplitValue legge dall'EXIF il nome della sotto-cartella per la suddivisione
+// extra dei RAW secondo il criterio scelto (camera|lens|iso|camera_lens).
+// Restituisce "sconosciuto" se il metadato è assente, "" se split è disattivato.
+func rawSplitValue(path, split string) string {
+	if split == "" {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "sconosciuto"
+	}
+	defer f.Close()
+	x, err := exif.Decode(f)
+	if err != nil {
+		return "sconosciuto"
+	}
+
+	camera := func() string {
+		c := sanitizeFolder(strings.Join(nonEmpty(exifString(x, exif.Make), exifString(x, exif.Model)), "_"))
+		if c == "" {
+			return "sconosciuto"
+		}
+		return c
+	}
+	lens := func() string {
+		l := sanitizeFolder(exifString(x, exif.LensModel))
+		if l == "" {
+			return "sconosciuto"
+		}
+		return l
+	}
+
+	switch split {
+	case "camera":
+		return camera()
+	case "lens":
+		return lens()
+	case "iso":
+		return isoBand(exifInt(x, exif.ISOSpeedRatings))
+	case "camera_lens":
+		return filepath.Join(camera(), lens())
+	}
+	return "sconosciuto"
+}
+
+// nonEmpty restituisce solo le stringhe non vuote, nell'ordine dato.
+func nonEmpty(ss ...string) []string {
+	var out []string
+	for _, s := range ss {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func buildFilename(template string, dt time.Time, camera, ext string) string {
@@ -158,11 +296,8 @@ func buildFilename(template string, dt time.Time, camera, ext string) string {
 	return r + strings.ToLower(ext)
 }
 
-func buildDestPath(outputDir string, dt time.Time, ext string, isRaw bool, camera string, opts OrganizerOptions) string {
-	category := "altri"
-	if isRaw {
-		category = "raw"
-	}
+func buildDestPath(outputDir string, dt time.Time, ext string, isRaw bool, camera, rawSub string, opts OrganizerOptions) string {
+	category := categoryFor(ext, isRaw)
 
 	folderFmt := opts.FolderFormat
 	if folderFmt == "" {
@@ -174,7 +309,12 @@ func buildDestPath(outputDir string, dt time.Time, ext string, isRaw bool, camer
 		tpl = "photo_{date}_{time}"
 	}
 
-	return filepath.Join(outputDir, category, dt.Format(folderFmt), buildFilename(tpl, dt, camera, ext))
+	parts := []string{outputDir, category}
+	if rawSub != "" {
+		parts = append(parts, rawSub) // livello extra per i RAW (es. fotocamera)
+	}
+	parts = append(parts, dt.Format(folderFmt), buildFilename(tpl, dt, camera, ext))
+	return filepath.Join(parts...)
 }
 
 func resolveConflict(dest string) string {
@@ -449,6 +589,74 @@ func removeEmptyDirs(root string, logW io.Writer) int {
 	return removed
 }
 
+// migrateAltri ridistribuisce il contenuto di una eventuale cartella outputDir/altri
+// (struttura precedente) nelle nuove cartelle per tipo, preservando le sottocartelle
+// per data. Al termine rimuove le cartelle vuote e la cartella altri stessa.
+// Restituisce il numero di file migrati. In dry-run logga senza spostare.
+func migrateAltri(outputDir string, dryRun bool, logW io.Writer) int {
+	altriDir := filepath.Join(outputDir, "altri")
+	info, err := os.Stat(altriDir)
+	if err != nil || !info.IsDir() {
+		return 0
+	}
+
+	var files []string
+	filepath.Walk(altriDir, func(path string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(fi.Name(), "._") {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(fi.Name()))
+		if !rawExtensions[ext] && !otherExtensions[ext] {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+
+	if len(files) == 0 {
+		if !dryRun {
+			os.Remove(altriDir) // rimuove se vuota
+		}
+		return 0
+	}
+	sort.Strings(files)
+
+	fmt.Fprintf(logW, "Migrazione struttura: %d file da altri/ alle cartelle per tipo.\n", len(files))
+	migrated := 0
+	for _, src := range files {
+		ext := strings.ToLower(filepath.Ext(src))
+		category := categoryFor(ext, rawExtensions[ext])
+		rel, _ := filepath.Rel(altriDir, src) // <cartella_data>/<file>
+		dest := resolveConflict(filepath.Join(outputDir, category, rel))
+		relSrc, _ := filepath.Rel(outputDir, src)
+		relDest, _ := filepath.Rel(outputDir, dest)
+		if !dryRun {
+			if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
+				fmt.Fprintf(logW, "  errore  %s: %v\n", relSrc, mkErr)
+				continue
+			}
+			if mvErr := moveFile(src, dest); mvErr != nil {
+				fmt.Fprintf(logW, "  errore  %s: %v\n", relSrc, mvErr)
+				continue
+			}
+		}
+		fmt.Fprintf(logW, "  %s → %s\n", relSrc, relDest)
+		migrated++
+	}
+
+	if !dryRun {
+		removeEmptyDirs(altriDir, logW)
+		if entries, rdErr := os.ReadDir(altriDir); rdErr == nil && len(entries) == 0 {
+			os.Remove(altriDir)
+		}
+	}
+	fmt.Fprintln(logW)
+	return migrated
+}
+
 func isExcluded(path string, excluded []string) bool {
 	for _, exc := range excluded {
 		rel, err := filepath.Rel(exc, path)
@@ -513,12 +721,17 @@ func formatDatetimeHuman(dt time.Time) string {
 }
 
 func organizePhotos(ctx context.Context, inputDir, outputDir string, opts OrganizerOptions, progress ProgressFunc, w io.Writer) (OrganizerStats, error) {
-	photos, err := collectPhotos(inputDir, outputDir)
-	if err != nil {
-		return OrganizerStats{}, err
+	stats := OrganizerStats{ByYear: make(map[int]int), ByCategory: make(map[string]int)}
+
+	// Migra una eventuale struttura precedente (outputDir/altri) verso le cartelle per tipo.
+	if !opts.RenameOnly {
+		stats.Migrated = migrateAltri(outputDir, opts.DryRun, w)
 	}
 
-	stats := OrganizerStats{ByYear: make(map[int]int)}
+	photos, err := collectPhotos(inputDir, outputDir)
+	if err != nil {
+		return stats, err
+	}
 
 	if len(photos) == 0 {
 		fmt.Fprintln(w, "Nessuna foto trovata.")
@@ -632,6 +845,7 @@ func organizePhotos(ctx context.Context, inputDir, outputDir string, opts Organi
 					fmt.Fprint(w, logLine)
 					stats.Moved++
 					stats.ByYear[dt.Year()]++
+					stats.ByCategory[categoryFor(ext, isRaw)]++
 					if isRaw {
 						stats.Raw++
 					} else {
@@ -658,7 +872,12 @@ func organizePhotos(ctx context.Context, inputDir, outputDir string, opts Organi
 					continue
 				}
 
-				dest := buildDestPath(outputDir, dt, ext, isRaw, camera, opts)
+				rawSub := ""
+				if isRaw && opts.RawSplit != "" {
+					rawSub = rawSplitValue(photo, opts.RawSplit)
+				}
+
+				dest := buildDestPath(outputDir, dt, ext, isRaw, camera, rawSub, opts)
 
 				ioMu.Lock()
 				dest = resolveConflict(dest)
@@ -674,6 +893,7 @@ func organizePhotos(ctx context.Context, inputDir, outputDir string, opts Organi
 					categoria, name, noteStr, formatDatetimeHuman(dt), rel)
 				stats.Moved++
 				stats.ByYear[dt.Year()]++
+				stats.ByCategory[categoryFor(ext, isRaw)]++
 				if isRaw {
 					stats.Raw++
 				} else {
@@ -728,6 +948,27 @@ drain:
 	}
 
 	fmt.Fprintf(w, "  %d file %s  (%d RAW, %d altri)\n", stats.Moved, verbo, stats.Raw, stats.Altri)
+
+	// Dettaglio per tipo (cartella di destinazione), ordinato per conteggio decrescente.
+	if len(stats.ByCategory) > 0 {
+		cats := make([]string, 0, len(stats.ByCategory))
+		for c := range stats.ByCategory {
+			cats = append(cats, c)
+		}
+		sort.Slice(cats, func(i, j int) bool {
+			if stats.ByCategory[cats[i]] != stats.ByCategory[cats[j]] {
+				return stats.ByCategory[cats[i]] > stats.ByCategory[cats[j]]
+			}
+			return cats[i] < cats[j]
+		})
+		for _, c := range cats {
+			fmt.Fprintf(w, "      · %s/  %d\n", c, stats.ByCategory[c])
+		}
+	}
+
+	if stats.Migrated > 0 {
+		fmt.Fprintf(w, "  %d file migrati da altri/ alle cartelle per tipo\n", stats.Migrated)
+	}
 	if stats.Skipped > 0 {
 		if opts.RenameOnly {
 			fmt.Fprintf(w, "  %d saltati  (nessuna data disponibile)\n", stats.Skipped)
