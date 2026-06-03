@@ -2,8 +2,8 @@
 import { ref, watch, onMounted, nextTick, computed } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { useStore } from '../../composables/useStore'
-import { FormatPreview } from '../../../wailsjs/go/main/App'
-import { RotateCcw, ArrowRight, Hash, AlertTriangle, Info, Sparkles, Settings2 } from '@lucide/vue'
+import { FormatPreview, PreviewTree } from '../../../wailsjs/go/main/App'
+import { RotateCcw, ArrowRight, Hash, AlertTriangle, Info, Sparkles, Settings2, FolderTree } from '@lucide/vue'
 import Checkbox from '../Checkbox.vue'
 import {
   FOLDER_PRESETS, FILE_PRESETS, CUSTOM_ID,
@@ -11,6 +11,20 @@ import {
 } from '../../lib/presets'
 
 const { state, persist, resetPrefs } = useStore()
+
+const treeData = ref(null)
+const treeLoading = ref(false)
+
+async function computeTree() {
+  treeLoading.value = true
+  try {
+    treeData.value = await PreviewTree(state.prefs)
+  } catch (e) {
+    console.error('PreviewTree failed', e)
+  } finally {
+    treeLoading.value = false
+  }
+}
 
 const preview = ref({ folder: '', file: '', full: '' })
 const folderInput = ref(null)
@@ -431,6 +445,39 @@ function insertToken(token) {
         </button>
       </section>
     </template>
+
+    <!-- Struttura di destinazione (comune a entrambe le viste) -->
+    <section v-if="state.prefs.inputDir" class="tree-section">
+      <header class="sec-head tree-head">
+        <div>
+          <h3>Struttura di destinazione</h3>
+          <p>Stima le cartelle che verranno create organizzando le tue foto.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="computeTree" :disabled="treeLoading || state.running">
+          <FolderTree :size="12" /> {{ treeLoading ? 'Calcolo…' : 'Calcola' }}
+        </button>
+      </header>
+
+      <div v-if="treeData" class="tree">
+        <div v-for="cat in treeData.categories" :key="cat.name" class="tree-cat">
+          <div class="tree-cat-row">
+            <span class="tree-cat-name">{{ cat.name }}/</span>
+            <span class="tree-cat-count">{{ cat.count }}</span>
+          </div>
+          <div v-for="folder in cat.folders" :key="folder.path" class="tree-folder-row">
+            <span class="tree-folder-indent">↳</span>
+            <span class="tree-folder-name">{{ folder.path }}/</span>
+            <span class="tree-folder-count">{{ folder.count }}</span>
+          </div>
+        </div>
+        <div v-if="treeData.truncated" class="tree-note">
+          Stima basata sulle prime {{ treeData.scanned }} foto analizzate.
+        </div>
+        <div v-if="!treeData.categories?.length" class="tree-empty">
+          Nessuna foto trovata nella cartella di partenza.
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -620,4 +667,65 @@ section {
   padding-top: 16px;
   margin-top: 4px;
 }
+
+/* Struttura di destinazione */
+.tree-section {
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 16px;
+}
+.tree-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tree {
+  background: hsl(var(--subtle));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.tree-cat { margin-bottom: 4px; }
+.tree-cat:last-child { margin-bottom: 0; }
+.tree-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--text));
+}
+.tree-cat-name { flex: 1; font-family: var(--font-mono, monospace); }
+.tree-cat-count {
+  font-size: 11px;
+  color: hsl(var(--muted));
+  background: hsl(var(--bg));
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.tree-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: hsl(var(--muted));
+  padding-left: 6px;
+}
+.tree-folder-indent { color: hsl(var(--border)); font-size: 12px; }
+.tree-folder-name { flex: 1; font-family: var(--font-mono, monospace); }
+.tree-folder-count { font-size: 11px; }
+.tree-note {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 11px;
+  color: hsl(var(--muted));
+  font-style: italic;
+}
+.tree-empty { font-size: 12px; color: hsl(var(--muted)); }
 </style>
