@@ -16,6 +16,7 @@ const treeData = ref(null)
 const treeLoading = ref(false)
 
 async function computeTree() {
+  if (!state.prefs.inputDir) return
   treeLoading.value = true
   try {
     treeData.value = await PreviewTree(state.prefs)
@@ -25,6 +26,21 @@ async function computeTree() {
     treeLoading.value = false
   }
 }
+
+const debouncedComputeTree = useDebounceFn(computeTree, 800)
+
+watch(
+  () => [
+    state.prefs.inputDir,
+    state.prefs.outputDir,
+    state.prefs.folderFmt,
+    state.prefs.rawSplit,
+    state.prefs.modTime,
+    state.prefs.renameOnly,
+  ],
+  () => debouncedComputeTree(),
+  { immediate: true },
+)
 
 const preview = ref({ folder: '', file: '', full: '' })
 const folderInput = ref(null)
@@ -448,14 +464,13 @@ function insertToken(token) {
 
     <!-- Struttura di destinazione (comune a entrambe le viste) -->
     <section v-if="state.prefs.inputDir" class="tree-section">
-      <header class="sec-head tree-head">
-        <div>
-          <h3>Struttura di destinazione</h3>
-          <p>Stima le cartelle che verranno create organizzando le tue foto.</p>
-        </div>
-        <button class="btn btn-ghost btn-sm" @click="computeTree" :disabled="treeLoading || state.running">
-          <FolderTree :size="12" /> {{ treeLoading ? 'Calcolo…' : 'Calcola' }}
-        </button>
+      <header class="sec-head">
+        <h3>
+          <FolderTree :size="12" class="tree-title-icon" />
+          Struttura di destinazione
+          <span v-if="treeLoading" class="tree-loading-dot" title="Calcolo in corso…" />
+        </h3>
+        <p>Stima le cartelle che verranno create organizzando le tue foto.</p>
       </header>
 
       <div v-if="treeData" class="tree">
@@ -673,11 +688,24 @@ section {
   border-top: 1px solid hsl(var(--border));
   padding-top: 16px;
 }
-.tree-head {
+.sec-head h3 {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  gap: 5px;
+}
+.tree-title-icon { color: hsl(var(--muted)); flex-shrink: 0; }
+.tree-loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--accent));
+  animation: pulse-dot 1s ease-in-out infinite;
+  margin-left: 2px;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: .4; transform: scale(.85); }
+  50%       { opacity: 1;  transform: scale(1.1); }
 }
 .tree {
   background: hsl(var(--subtle));
