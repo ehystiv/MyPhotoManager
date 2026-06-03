@@ -396,6 +396,17 @@ func (a *App) Organize(opts Prefs) {
 		if err != nil && ctx.Err() == nil {
 			result.Err = err.Error()
 		}
+		if ctx.Err() == nil && !opts.DryRun && result.Moved > 0 {
+			a.appendHistory(HistoryEntry{
+				RunAt:    time.Now(),
+				InputDir: opts.InputDir,
+				Moved:    result.Moved,
+				Raw:      result.Raw,
+				Others:   result.Others,
+				Skipped:  result.Skipped,
+				Dupes:    result.Dupes,
+			})
+		}
 		wailsruntime.EventsEmit(a.ctx, "organize:done", result)
 	}()
 }
