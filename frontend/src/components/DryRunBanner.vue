@@ -17,7 +17,7 @@ function disable() {
       <span>
         <strong>Modalità anteprima</strong> attiva — nessun file verrà modificato.
       </span>
-      <button class="btn-disable" @click="disable" title="Disattiva dry-run">
+      <button class="btn-disable" @click="disable" title="Disattiva la modalità anteprima">
         Disattiva
       </button>
       <button class="btn-close" @click="disable" aria-label="Chiudi">

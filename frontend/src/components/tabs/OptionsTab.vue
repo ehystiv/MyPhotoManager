@@ -3,8 +3,12 @@ import { ref, watch, onMounted, nextTick, computed } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { useStore } from '../../composables/useStore'
 import { FormatPreview } from '../../../wailsjs/go/main/App'
-import { RotateCcw, ArrowRight, Hash, AlertTriangle, Info } from '@lucide/vue'
+import { RotateCcw, ArrowRight, Hash, AlertTriangle, Info, Sparkles, Settings2 } from '@lucide/vue'
 import Checkbox from '../Checkbox.vue'
+import {
+  FOLDER_PRESETS, FILE_PRESETS, CUSTOM_ID,
+  matchFolderPreset, matchFilePreset,
+} from '../../lib/presets'
 
 const { state, persist, resetPrefs } = useStore()
 
@@ -33,26 +37,53 @@ const rawSplitExample = computed(() => {
   }
 })
 
+/* ---------- Vista Semplice: preset ↔ pattern ---------- */
+
+const folderPreset = computed({
+  get: () => matchFolderPreset(state.prefs.folderFmt),
+  set: (id) => {
+    const p = FOLDER_PRESETS.find((x) => x.id === id)
+    if (!p) return
+    state.prefs.folderFmt = p.folderFmt
+    // refreshPreview e persist sono gestiti dai watch su folderFmt
+  },
+})
+
+const filePreset = computed({
+  get: () => matchFilePreset(state.prefs.fileTpl),
+  set: (id) => {
+    const p = FILE_PRESETS.find((x) => x.id === id)
+    if (!p) return
+    state.prefs.fileTpl = p.fileTpl
+  },
+})
+
+const isCustomLayout = computed(() =>
+  folderPreset.value === CUSTOM_ID || filePreset.value === CUSTOM_ID
+)
+
+/* ---------- Validazioni (vista Avanzate) ---------- */
+
 const folderWarning = computed(() => {
   const v = state.prefs.folderFmt || ''
   if (state.prefs.renameOnly) return ''
   if (!v.trim()) return { level: 'error', msg: 'Formato cartella vuoto.' }
   const hasDate = /2006|01|02/.test(v)
   if (!hasDate) {
-    return { level: 'error', msg: 'Nessun placeholder data: tutte le foto finirebbero in una sola cartella.' }
+    return { level: 'error', msg: 'Nessun riferimento alla data: tutte le foto finirebbero in una sola cartella.' }
   }
   return ''
 })
 
 const fileWarning = computed(() => {
   const v = state.prefs.fileTpl || ''
-  if (!v.trim()) return { level: 'error', msg: 'Template nome file vuoto.' }
+  if (!v.trim()) return { level: 'error', msg: 'Nome file vuoto.' }
   const hasUniq = /\{date\}|\{time\}|\{datetime\}/.test(v)
   if (!hasUniq) {
-    return { level: 'warn', msg: 'Nessun token data/ora: rischio di nomi duplicati (verrà aggiunto _1, _2…).' }
+    return { level: 'warn', msg: 'Nessun riferimento a data/ora: rischio di nomi duplicati (verrà aggiunto _1, _2…).' }
   }
   if (!/\{(date|time|datetime|year|month|day|camera)\}/.test(v)) {
-    return { level: 'warn', msg: 'Nessun token: tutti i file avranno lo stesso nome.' }
+    return { level: 'warn', msg: 'Nessun segnaposto: tutti i file avranno lo stesso nome.' }
   }
   return ''
 })
@@ -95,131 +126,93 @@ function insertToken(token) {
 
 <template>
   <div class="options-tab">
-    <!-- Modalità -->
-    <section>
-      <header class="sec-head">
-        <h3>Modalità</h3>
-        <p>Come elaborare i file di origine.</p>
-      </header>
-      <div class="grid">
-        <Checkbox
-          v-model="state.prefs.dryRun"
-          @update:modelValue="onCheckChange"
-          label="Dry-run"
-          description="Solo anteprima, nessuna modifica reale ai file."
-        />
-        <Checkbox
-          v-model="state.prefs.copyMode"
-          @update:modelValue="onCheckChange"
-          :disabled="state.prefs.renameOnly"
-          disabled-reason="Non applicabile in modalità Rinomina in-place."
-          label="Copia"
-          description="Mantieni i file originali nella cartella sorgente."
-        />
-        <Checkbox
-          v-model="state.prefs.renameOnly"
-          @update:modelValue="onCheckChange"
-          label="Rinomina in-place"
-          description="Non spostare in sottocartelle: rinomina nella posizione attuale."
-        />
-        <Checkbox
-          v-model="state.prefs.cleanDirs"
-          @update:modelValue="onCheckChange"
-          :disabled="state.prefs.renameOnly"
-          disabled-reason="In rinomina in-place le cartelle non vengono toccate."
-          label="Rimuovi cartelle vuote"
-          description="Dopo lo spostamento, elimina le directory rimaste vuote."
-        />
-      </div>
-    </section>
+    <!-- Toggle vista -->
+    <div class="mode-switch" role="tablist" aria-label="Livello di dettaglio">
+      <button
+        class="seg"
+        :class="{ active: state.optionsMode === 'simple' }"
+        @click="state.optionsMode = 'simple'"
+        role="tab"
+        :aria-selected="state.optionsMode === 'simple'"
+      >
+        <Sparkles :size="13" /> Semplice
+      </button>
+      <button
+        class="seg"
+        :class="{ active: state.optionsMode === 'advanced' }"
+        @click="state.optionsMode = 'advanced'"
+        role="tab"
+        :aria-selected="state.optionsMode === 'advanced'"
+      >
+        <Settings2 :size="13" /> Avanzate
+      </button>
+    </div>
 
-    <!-- Metadati -->
-    <section>
-      <header class="sec-head">
-        <h3>Metadati e date</h3>
-      </header>
-      <div class="grid">
-        <Checkbox
-          v-model="state.prefs.stripMeta"
-          @update:modelValue="onCheckChange"
-          label="Rimuovi EXIF dai JPEG"
-          description="Cancella metadati EXIF/XMP/IPTC nei file JPEG. RAW non toccati."
-        />
-        <Checkbox
-          v-model="state.prefs.modTime"
-          @update:modelValue="onCheckChange"
-          label="Data da filesystem"
-          description="Se EXIF mancante, usa la data di modifica del file."
-        />
-        <Checkbox
-          v-model="state.prefs.checkDupes"
-          @update:modelValue="onCheckChange"
-          label="Salta duplicati"
-          description="Confronto SHA-256: i file identici vengono ignorati."
-        />
-      </div>
-    </section>
+    <!-- ============ VISTA SEMPLICE ============ -->
+    <template v-if="state.optionsMode === 'simple'">
+      <section>
+        <header class="sec-head">
+          <h3>Organizza le foto</h3>
+          <p>Scegli come raggruppare le foto in cartelle.</p>
+        </header>
+        <div class="field">
+          <label>Raggruppa per</label>
+          <select class="input select" v-model="folderPreset" :disabled="state.prefs.renameOnly">
+            <option v-for="o in FOLDER_PRESETS" :key="o.id" :value="o.id">
+              {{ o.label }} — {{ o.example }}{{ o.recommended ? '  ✓ consigliato' : '' }}
+            </option>
+            <option v-if="folderPreset === CUSTOM_ID" :value="CUSTOM_ID" disabled>
+              Personalizzato (impostato nelle opzioni avanzate)
+            </option>
+          </select>
+        </div>
+      </section>
 
-    <!-- Struttura -->
-    <section>
-      <header class="sec-head">
-        <h3>Struttura cartelle e nomi</h3>
-        <p>Pattern Go time per data: <code>2006</code>=anno, <code>01</code>=mese, <code>02</code>=giorno.</p>
-      </header>
+      <section>
+        <header class="sec-head">
+          <h3>Nome dei file</h3>
+          <p>Come rinominare ogni foto.</p>
+        </header>
+        <div class="field">
+          <label>Formato nome</label>
+          <select class="input select" v-model="filePreset">
+            <option v-for="o in FILE_PRESETS" :key="o.id" :value="o.id">
+              {{ o.label }} — {{ o.example }}{{ o.recommended ? '  ✓ consigliato' : '' }}
+            </option>
+            <option v-if="filePreset === CUSTOM_ID" :value="CUSTOM_ID" disabled>
+              Personalizzato (impostato nelle opzioni avanzate)
+            </option>
+          </select>
+        </div>
+      </section>
 
-      <div class="field">
-        <label>Cartelle</label>
-        <input
-          ref="folderInput"
-          type="text"
-          v-model="state.prefs.folderFmt"
-          class="input mono"
-          :class="{ 'has-warn': folderWarning?.level === 'warn', 'has-err': folderWarning?.level === 'error' }"
-          :disabled="state.prefs.renameOnly"
-          placeholder="2006_01_02"
-          @focus="lastFocused = 'folder'"
-        />
-        <Transition name="hint">
-          <div v-if="folderWarning" class="hint" :data-level="folderWarning.level" role="alert">
-            <component :is="folderWarning.level === 'error' ? AlertTriangle : Info" :size="11" />
-            {{ folderWarning.msg }}
-          </div>
-        </Transition>
-      </div>
-
-      <div class="field">
-        <label>Nome file</label>
-        <input
-          ref="fileInput"
-          type="text"
-          v-model="state.prefs.fileTpl"
-          class="input mono"
-          :class="{ 'has-warn': fileWarning?.level === 'warn', 'has-err': fileWarning?.level === 'error' }"
-          placeholder="photo_{date}_{time}"
-          @focus="lastFocused = 'file'"
-        />
-        <Transition name="hint">
-          <div v-if="fileWarning" class="hint" :data-level="fileWarning.level" role="alert">
-            <component :is="fileWarning.level === 'error' ? AlertTriangle : Info" :size="11" />
-            {{ fileWarning.msg }}
-          </div>
-        </Transition>
-      </div>
-
-      <!-- Token chip -->
-      <div class="tokens">
-        <span class="tokens-label">Token:</span>
-        <button
-          v-for="t in TOKENS"
-          :key="t"
-          class="chip chip-interactive"
-          @click="insertToken(t)"
-          :title="`Inserisci ${t} nel campo selezionato`"
-        >
-          <Hash :size="9" />
-          {{ t.slice(1, -1) }}
-        </button>
-      </div>
+      <section>
+        <header class="sec-head">
+          <h3>Sicurezza</h3>
+        </header>
+        <div class="grid">
+          <Checkbox
+            v-model="state.prefs.dryRun"
+            @update:modelValue="onCheckChange"
+            label="Prova senza modificare i file"
+            description="Mostra cosa accadrebbe, senza toccare nulla. Consigliato la prima volta."
+          />
+          <Checkbox
+            v-model="state.prefs.copyMode"
+            @update:modelValue="onCheckChange"
+            :disabled="state.prefs.renameOnly"
+            disabled-reason="Non applicabile con «Rinomina senza spostare»."
+            label="Tieni una copia degli originali"
+            description="I file restano anche nella cartella di partenza."
+          />
+          <Checkbox
+            v-model="state.prefs.checkDupes"
+            @update:modelValue="onCheckChange"
+            label="Ignora le foto doppie"
+            description="Salta le foto con lo stesso identico contenuto."
+          />
+        </div>
+      </section>
 
       <!-- Anteprima live -->
       <div class="preview">
@@ -234,60 +227,210 @@ function insertToken(token) {
           </code>
         </div>
       </div>
-    </section>
 
-    <!-- Opzioni avanzate -->
-    <section>
-      <header class="sec-head">
-        <h3>Opzioni avanzate</h3>
-        <p>Suddivisione extra applicata <strong>solo ai RAW</strong>: gli altri formati non hanno questi metadati.</p>
-      </header>
-
-      <div class="field">
-        <label>Suddividi i RAW per metadato</label>
-        <select
-          class="input select"
-          v-model="state.prefs.rawSplit"
-          @change="onCheckChange"
-          :disabled="state.prefs.renameOnly"
-        >
-          <option v-for="o in RAW_SPLITS" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
-
-        <Transition name="hint">
-          <div v-if="state.prefs.renameOnly" class="hint" data-level="info">
-            <Info :size="11" />
-            Non applicabile in modalità Rinomina in-place.
-          </div>
-          <div v-else-if="state.prefs.rawSplit" class="hint" data-level="info">
-            <Info :size="11" />
-            I RAW privi di questo metadato finiranno in <code>sconosciuto/</code>.
-          </div>
-        </Transition>
+      <div v-if="isCustomLayout" class="custom-note">
+        <Info :size="12" />
+        Stai usando un formato personalizzato. Modificalo nelle
+        <button class="link" @click="state.optionsMode = 'advanced'">opzioni avanzate</button>.
       </div>
+    </template>
 
-      <!-- Anteprima struttura RAW -->
-      <div class="preview" v-if="state.prefs.rawSplit && !state.prefs.renameOnly">
-        <span class="preview-label">Anteprima RAW</span>
-        <div class="preview-path">
-          <ArrowRight :size="13" />
-          <code>
-            <span class="dim">{{ state.prefs.outputDir || state.prefs.inputDir || '/output' }}/</span>
-            <span class="hl">raw/</span>
-            <span class="hl">{{ rawSplitExample }}</span>
-            <span class="hl">{{ preview.folder }}/</span>
-            <span class="strong">{{ preview.file }}</span>
-          </code>
+    <!-- ============ VISTA AVANZATE ============ -->
+    <template v-else>
+      <!-- Modalità -->
+      <section>
+        <header class="sec-head">
+          <h3>Modalità</h3>
+          <p>Come elaborare i file di origine.</p>
+        </header>
+        <div class="grid">
+          <Checkbox
+            v-model="state.prefs.dryRun"
+            @update:modelValue="onCheckChange"
+            label="Prova senza modifiche"
+            description="Solo anteprima, nessuna modifica reale ai file."
+          />
+          <Checkbox
+            v-model="state.prefs.copyMode"
+            @update:modelValue="onCheckChange"
+            :disabled="state.prefs.renameOnly"
+            disabled-reason="Non applicabile con «Rinomina senza spostare»."
+            label="Tieni una copia degli originali"
+            description="Mantieni i file originali nella cartella sorgente."
+          />
+          <Checkbox
+            v-model="state.prefs.renameOnly"
+            @update:modelValue="onCheckChange"
+            label="Rinomina senza spostare"
+            description="Non spostare in sottocartelle: rinomina nella posizione attuale."
+          />
+          <Checkbox
+            v-model="state.prefs.cleanDirs"
+            @update:modelValue="onCheckChange"
+            :disabled="state.prefs.renameOnly"
+            disabled-reason="Con «Rinomina senza spostare» le cartelle non vengono toccate."
+            label="Elimina le cartelle rimaste vuote"
+            description="Dopo lo spostamento, rimuovi le cartelle svuotate."
+          />
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Reset -->
-    <section class="reset-sec">
-      <button class="btn btn-ghost btn-sm" @click="resetPrefs">
-        <RotateCcw :size="12" /> Ripristina default
-      </button>
-    </section>
+      <!-- Metadati -->
+      <section>
+        <header class="sec-head">
+          <h3>Informazioni e date</h3>
+        </header>
+        <div class="grid">
+          <Checkbox
+            v-model="state.prefs.stripMeta"
+            @update:modelValue="onCheckChange"
+            label="Cancella le informazioni della foto"
+            description="Rimuove data, luogo e fotocamera dai file JPEG. I RAW non vengono toccati."
+          />
+          <Checkbox
+            v-model="state.prefs.modTime"
+            @update:modelValue="onCheckChange"
+            label="Usa la data del file se manca quella della foto"
+            description="Quando la foto non ha una data, usa quella di modifica del file."
+          />
+          <Checkbox
+            v-model="state.prefs.checkDupes"
+            @update:modelValue="onCheckChange"
+            label="Ignora le foto doppie"
+            description="Salta le foto con lo stesso identico contenuto."
+          />
+        </div>
+      </section>
+
+      <!-- Struttura -->
+      <section>
+        <header class="sec-head">
+          <h3>Struttura cartelle e nomi</h3>
+          <p>Formato avanzato per esperti — <code>2006</code>=anno, <code>01</code>=mese, <code>02</code>=giorno.</p>
+        </header>
+
+        <div class="field">
+          <label>Cartelle</label>
+          <input
+            ref="folderInput"
+            type="text"
+            v-model="state.prefs.folderFmt"
+            class="input mono"
+            :class="{ 'has-warn': folderWarning?.level === 'warn', 'has-err': folderWarning?.level === 'error' }"
+            :disabled="state.prefs.renameOnly"
+            placeholder="2006_01_02"
+            @focus="lastFocused = 'folder'"
+          />
+          <Transition name="hint">
+            <div v-if="folderWarning" class="hint" :data-level="folderWarning.level" role="alert">
+              <component :is="folderWarning.level === 'error' ? AlertTriangle : Info" :size="11" />
+              {{ folderWarning.msg }}
+            </div>
+          </Transition>
+        </div>
+
+        <div class="field">
+          <label>Nome file</label>
+          <input
+            ref="fileInput"
+            type="text"
+            v-model="state.prefs.fileTpl"
+            class="input mono"
+            :class="{ 'has-warn': fileWarning?.level === 'warn', 'has-err': fileWarning?.level === 'error' }"
+            placeholder="photo_{date}_{time}"
+            @focus="lastFocused = 'file'"
+          />
+          <Transition name="hint">
+            <div v-if="fileWarning" class="hint" :data-level="fileWarning.level" role="alert">
+              <component :is="fileWarning.level === 'error' ? AlertTriangle : Info" :size="11" />
+              {{ fileWarning.msg }}
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Segnaposto -->
+        <div class="tokens">
+          <span class="tokens-label">Segnaposto:</span>
+          <button
+            v-for="t in TOKENS"
+            :key="t"
+            class="chip chip-interactive"
+            @click="insertToken(t)"
+            :title="`Inserisci ${t} nel campo selezionato`"
+          >
+            <Hash :size="9" />
+            {{ t.slice(1, -1) }}
+          </button>
+        </div>
+
+        <!-- Anteprima live -->
+        <div class="preview">
+          <span class="preview-label">Anteprima</span>
+          <div class="preview-path">
+            <ArrowRight :size="13" />
+            <code>
+              <span class="dim">{{ state.prefs.outputDir || state.prefs.inputDir || '/output' }}/</span>
+              <span class="hl">jpg/</span>
+              <span class="hl">{{ preview.folder }}/</span>
+              <span class="strong">{{ preview.file }}</span>
+            </code>
+          </div>
+        </div>
+      </section>
+
+      <!-- Opzioni avanzate RAW -->
+      <section>
+        <header class="sec-head">
+          <h3>Suddivisione RAW</h3>
+          <p>Suddivisione extra applicata <strong>solo ai RAW</strong>: gli altri formati non hanno queste informazioni.</p>
+        </header>
+
+        <div class="field">
+          <label>Suddividi i RAW per</label>
+          <select
+            class="input select"
+            v-model="state.prefs.rawSplit"
+            @change="onCheckChange"
+            :disabled="state.prefs.renameOnly"
+          >
+            <option v-for="o in RAW_SPLITS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+
+          <Transition name="hint">
+            <div v-if="state.prefs.renameOnly" class="hint" data-level="info">
+              <Info :size="11" />
+              Non applicabile con «Rinomina senza spostare».
+            </div>
+            <div v-else-if="state.prefs.rawSplit" class="hint" data-level="info">
+              <Info :size="11" />
+              I RAW privi di questa informazione finiranno in <code>sconosciuto/</code>.
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Anteprima struttura RAW -->
+        <div class="preview" v-if="state.prefs.rawSplit && !state.prefs.renameOnly">
+          <span class="preview-label">Anteprima RAW</span>
+          <div class="preview-path">
+            <ArrowRight :size="13" />
+            <code>
+              <span class="dim">{{ state.prefs.outputDir || state.prefs.inputDir || '/output' }}/</span>
+              <span class="hl">raw/</span>
+              <span class="hl">{{ rawSplitExample }}</span>
+              <span class="hl">{{ preview.folder }}/</span>
+              <span class="strong">{{ preview.file }}</span>
+            </code>
+          </div>
+        </div>
+      </section>
+
+      <!-- Reset -->
+      <section class="reset-sec">
+        <button class="btn btn-ghost btn-sm" @click="resetPrefs">
+          <RotateCcw :size="12" /> Ripristina default
+        </button>
+      </section>
+    </template>
   </div>
 </template>
 
@@ -304,6 +447,39 @@ function insertToken(token) {
   min-height: 0;
   overflow-y: auto;
 }
+
+/* Segmented control Semplice / Avanzate */
+.mode-switch {
+  display: inline-flex;
+  align-self: flex-end;
+  gap: 2px;
+  padding: 3px;
+  background: hsl(var(--subtle));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted));
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.seg:hover { color: hsl(var(--text)); }
+.seg.active {
+  background: hsl(var(--bg));
+  color: hsl(var(--text));
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
 section {
   display: flex;
   flex-direction: column;
@@ -421,6 +597,24 @@ section {
 .dim { color: hsl(var(--muted)); }
 .hl { color: hsl(var(--text)); }
 .strong { color: hsl(var(--accent)); font-weight: 600; }
+
+.custom-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: hsl(var(--muted));
+}
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: hsl(var(--accent));
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .reset-sec {
   border-top: 1px solid hsl(var(--border));
   padding-top: 16px;

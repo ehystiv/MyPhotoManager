@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import {
   Play, Square, ArrowRight, ChevronDown, X, History, Trash2,
-  Sun, Moon, Monitor, MoreHorizontal, Info, Copy,
+  Sun, Moon, Monitor, MoreHorizontal, Info, Copy, Eye,
 } from '@lucide/vue'
 import { useStore } from '../composables/useStore'
 import { useTheme } from '../composables/useTheme'
@@ -23,7 +23,7 @@ const emit = defineEmits(['start', 'confirm-unsafe'])
 const {
   state, hasInputDir, canRun, isUnsafeOrganize,
   chooseInput, chooseOutput, clearOutput, stop, setRecent, clearRecentsList,
-  showAbout,
+  showAbout, toggleWatch,
 } = useStore()
 
 const recentsOpen = ref(false)
@@ -127,6 +127,20 @@ function pickRecent(dir) {
       <button v-if="state.prefs.outputDir" class="btn btn-ghost btn-sm" @click="clearOutput" title="Usa stessa di input" aria-label="Ripristina output a stessa di input">
         <X :size="12" />
       </button>
+    </div>
+
+    <!-- Watch toggle -->
+    <div class="watch-block" :title="state.watchActive ? `Monitoraggio attivo su ${state.prefs.inputDir}` : 'Monitoraggio automatico (ogni 10 s)'">
+      <Eye :size="13" class="watch-eye" :class="{ 'watch-eye--on': state.watchActive }" />
+      <label class="watch-toggle">
+        <input
+          type="checkbox"
+          :checked="state.watchActive"
+          @change="toggleWatch($event.target.checked)"
+          :disabled="!state.prefs.inputDir && !state.watchActive"
+        />
+        <span class="wtrack"><span class="wthumb"></span></span>
+      </label>
     </div>
 
     <div class="spacer" />
@@ -240,6 +254,42 @@ function pickRecent(dir) {
 .sep { color: hsl(var(--muted)); flex-shrink: 0; }
 .spacer { flex: 1; }
 .recents-btn { padding: 0 4px; gap: 2px; }
+
+/* Watch toggle */
+.watch-block {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  --wails-draggable: no-drag;
+}
+.watch-eye { color: hsl(var(--muted)); flex-shrink: 0; transition: color .2s; }
+.watch-eye--on { color: hsl(var(--success)); }
+.watch-toggle { position: relative; cursor: pointer; flex-shrink: 0; }
+.watch-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.wtrack {
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: hsl(var(--border));
+  position: relative;
+  transition: background .2s;
+}
+.wthumb {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  top: 2px;
+  left: 2px;
+  transition: transform .2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.watch-toggle input:checked + .wtrack { background: hsl(var(--success)); }
+.watch-toggle input:checked + .wtrack .wthumb { transform: translateX(14px); }
+.watch-toggle input:disabled + .wtrack { opacity: .4; cursor: not-allowed; }
 
 .kbd-on-primary {
   background: rgba(255,255,255,.18);

@@ -1,24 +1,21 @@
 <script setup>
 import { computed, toRef } from 'vue'
-import {
-  SlidersHorizontal, Terminal, BarChart3, Copy, Eye,
-} from '@lucide/vue'
+import { SlidersHorizontal, Copy, Images } from '@lucide/vue'
 import { useStore } from '../composables/useStore'
 import { useLogParser } from '../composables/useLogParser'
 
 const { state } = useStore()
 const { errorCount } = useLogParser(toRef(state, 'logText'))
 
+const cullingMarked = computed(() => state.cullingPhotos.filter(p => p.mark).length)
+
 const tabs = computed(() => [
-  { id: 'options', label: 'Opzioni',    icon: SlidersHorizontal, kbd: '⌘1' },
-  { id: 'log',     label: 'Log',        icon: Terminal,          kbd: '⌘2',
-    badge: errorCount.value > 0 ? errorCount.value : (state.running ? '●' : null),
+  { id: 'organizza', label: 'Organizza',          icon: SlidersHorizontal, kbd: '⌘1',
+    badge: errorCount.value > 0 ? errorCount.value : (state.running ? '●' : (state.stats?.moved || null)),
     badgeColor: errorCount.value > 0 ? 'danger' : 'accent' },
-  { id: 'results', label: 'Risultati',  icon: BarChart3,         kbd: '⌘3',
-    badge: state.stats?.moved || null },
-  { id: 'dedupe',  label: 'Duplicati',  icon: Copy,              kbd: '⌘4' },
-  { id: 'watch',   label: 'Watch',      icon: Eye,               kbd: '⌘5',
-    badge: state.watchActive ? '●' : null, badgeColor: 'success' },
+  { id: 'dedupe',    label: 'Gestione duplicati', icon: Copy,              kbd: '⌘2' },
+  { id: 'culling',   label: 'Revisiona',          icon: Images,            kbd: '⌘3',
+    badge: cullingMarked.value > 0 ? cullingMarked.value : null },
 ])
 </script>
 

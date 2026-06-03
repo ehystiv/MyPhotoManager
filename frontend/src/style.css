@@ -97,6 +97,14 @@
     @apply bg-danger text-white shadow-sm
            hover:brightness-110 active:brightness-95;
   }
+  .btn-warning {
+    @apply bg-warning text-white shadow-sm
+           hover:brightness-110 active:brightness-95;
+  }
+  .btn-success {
+    @apply bg-success text-white shadow-sm
+           hover:brightness-110 active:brightness-95;
+  }
   .btn-secondary {
     @apply bg-subtle text-text border border-border
            hover:bg-elevated active:brightness-95;

@@ -22,7 +22,7 @@ const scanChips = computed(() => {
   ]
   if (scan.value.raw)     out.push({ key: 'raw',    icon: Layers,    label: scan.value.raw + ' RAW',        color: 'text' })
   if (scan.value.others)  out.push({ key: 'others', icon: Image,     label: scan.value.others + ' altri',   color: 'text' })
-  if (scan.value.noExif)  out.push({ key: 'noexif', icon: ImageOff,  label: scan.value.noExif + ' senza EXIF', color: 'warning', tip: 'Foto senza data EXIF. Verranno spostate in senza_data/ a meno che non sia attiva l\'opzione "Data da filesystem".' })
+  if (scan.value.noExif)  out.push({ key: 'noexif', icon: ImageOff,  label: scan.value.noExif + ' senza data', color: 'warning', tip: 'Foto prive di data. Verranno spostate in senza_data/ a meno che non sia attiva l\'opzione "Usa la data del file se manca quella della foto".' })
   if (scan.value.totalBytes) out.push({ key: 'bytes', icon: HardDrive, label: formatBytes(scan.value.totalBytes), color: 'muted' })
   return out
 })

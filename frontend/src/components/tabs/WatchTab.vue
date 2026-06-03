@@ -30,8 +30,8 @@ const nextScanIn = computed(() => {
 <template>
   <div class="watch-tab">
     <header class="head">
-      <h2>Watch automatico</h2>
-      <p>Quando attivo, la cartella di input viene scansionata ogni 10 secondi e i nuovi file vengono organizzati con le opzioni correnti.</p>
+      <h2>Controllo automatico</h2>
+      <p>Quando attivo, la cartella di partenza viene controllata ogni 10 secondi e le foto nuove vengono organizzate con le impostazioni correnti.</p>
     </header>
 
     <div class="control">
@@ -76,7 +76,7 @@ const nextScanIn = computed(() => {
     </div>
 
     <div v-if="!state.prefs.inputDir" class="warn">
-      Seleziona una cartella di input per abilitare il watch.
+      Seleziona una cartella per attivare il controllo automatico.
     </div>
   </div>
 </template>
