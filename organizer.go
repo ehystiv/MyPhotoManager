@@ -65,6 +65,7 @@ var managedFolders = buildManagedFolders()
 func buildManagedFolders() map[string]bool {
 	m := map[string]bool{
 		"raw": true, "altri": true, "senza_data": true,
+		reviewFolder: true,
 	}
 	for ext := range otherExtensions {
 		m[otherCategory(ext)] = true
