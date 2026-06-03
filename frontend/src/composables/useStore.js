@@ -7,6 +7,7 @@ import {
   HandleDrop, Dedupe, OpenInFinder,
   ResetPreferences, ClearRecents,
   NotifyDesktop, ShowAbout,
+  ListCullingPhotos, MarkPhoto, ApplyCulling, ResetCullingMarks,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime'
 import { toast } from 'vue-sonner'
@@ -45,11 +46,23 @@ const state = reactive({
   dedupeResult: null,
   lastOutDir: '',
   isDragOver: false,
-  activeTab: localStorage.getItem('activeTab') || 'options',
+  activeTab: (() => {
+    const t = localStorage.getItem('activeTab') || 'organizza'
+    // Migrazione dai vecchi nomi di tab.
+    return { options: 'organizza', log: 'organizza', results: 'organizza', watch: 'organizza' }[t] ?? t
+  })(),
+  optionsMode: localStorage.getItem('optionsMode') || 'simple',
   runStartedAt: 0,
+  // Revisione (culling)
+  cullingPhotos: [],
+  cullingRoot: '',
+  cullingIndex: 0,
+  cullingLoading: false,
+  cullingResult: null,
 })
 
 watch(() => state.activeTab, (v) => localStorage.setItem('activeTab', v))
+watch(() => state.optionsMode, (v) => localStorage.setItem('optionsMode', v))
 
 const hasInputDir = computed(() => !!state.prefs.inputDir)
 const canRun = computed(() => hasInputDir.value && !state.running && !state.watchActive)
@@ -86,7 +99,7 @@ async function doScan(dir) {
       return
     }
     let msg = `${r.total} foto · ${r.raw} RAW · ${r.others} altri`
-    if (r.noExif > 0) msg += ` · ${r.noExif} senza EXIF`
+    if (r.noExif > 0) msg += ` · ${r.noExif} senza data`
     if (r.totalBytes) msg += ` · ${formatBytes(r.totalBytes)}`
     state.scanInfo = msg
   } catch (e) {
@@ -165,7 +178,7 @@ async function dedupePreview() {
   state.logText = ''
   state.stats = null
   state.dedupeResult = null
-  state.activeTab = 'log'
+  state.activeTab = 'dedupe'
   await Dedupe(state.prefs.inputDir, true)
 }
 
@@ -173,7 +186,7 @@ async function dedupeRemove() {
   state.logText = ''
   state.stats = null
   state.dedupeResult = null
-  state.activeTab = 'log'
+  state.activeTab = 'dedupe'
   await Dedupe(state.prefs.inputDir, false)
 }
 
@@ -196,6 +209,64 @@ async function resetPrefs() {
 async function clearRecentsList() {
   await ClearRecents()
   state.prefs.recents = []
+}
+
+async function loadCulling() {
+  state.cullingLoading = true
+  try {
+    const r = await ListCullingPhotos()
+    state.cullingRoot = r?.root || ''
+    state.cullingPhotos = r?.photos || []
+    if (state.cullingIndex >= state.cullingPhotos.length) state.cullingIndex = 0
+    if (r?.err) toast.error('Errore nel caricamento delle foto')
+  } catch (e) {
+    console.error('ListCullingPhotos failed', e)
+    toast.error('Errore nel caricamento delle foto')
+  } finally {
+    state.cullingLoading = false
+  }
+}
+
+function markPhoto(path, mark) {
+  const photo = state.cullingPhotos.find(p => p.path === path)
+  if (photo) photo.mark = mark
+  MarkPhoto(path, mark)
+}
+
+async function applyCulling() {
+  try {
+    const r = await ApplyCulling(state.prefs.dryRun)
+    state.cullingResult = r
+    if (r?.err) {
+      toast.error(`Errore: ${r.err}`)
+      return
+    }
+    if (state.prefs.dryRun) {
+      toast.info('Anteprima decisioni', {
+        description: `${r.deleted} da eliminare · ${r.moved} da correggere · ${r.kept} ok`,
+      })
+    } else {
+      const title = `${r.deleted} eliminate · ${r.moved} spostate`
+      const description = `${r.kept} tenute${r.errors ? ` · ${r.errors} errori` : ''}`
+      toast.success(title, { description })
+      await loadCulling()
+      state.cullingIndex = 0
+    }
+  } catch (e) {
+    console.error('ApplyCulling failed', e)
+    toast.error("Errore durante l'applicazione")
+  }
+}
+
+async function resetCulling() {
+  try {
+    await ResetCullingMarks()
+    state.cullingPhotos.forEach(p => { p.mark = '' })
+    state.cullingResult = null
+    toast.success('Marcature azzerate')
+  } catch (e) {
+    console.error('ResetCullingMarks failed', e)
+  }
 }
 
 function bindEvents() {
@@ -246,7 +317,7 @@ function bindEvents() {
         },
       })
       maybeDesktopNotify(title, description)
-      state.activeTab = 'results'
+      state.activeTab = 'organizza'
     }
   })
   EventsOn('watch:status', (s) => {
@@ -316,5 +387,9 @@ export function useStore() {
     resetPrefs,
     clearRecentsList,
     showAbout: ShowAbout,
+    loadCulling,
+    markPhoto,
+    applyCulling,
+    resetCulling,
   }
 }
