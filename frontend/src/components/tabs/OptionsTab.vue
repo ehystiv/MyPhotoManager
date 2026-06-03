@@ -27,7 +27,7 @@ async function computeTree() {
   }
 }
 
-const debouncedComputeTree = useDebounceFn(computeTree, 800)
+const debouncedComputeTree = useDebounceFn(computeTree, 400)
 
 watch(
   () => [
@@ -474,23 +474,28 @@ function insertToken(token) {
       </header>
 
       <div v-if="treeData" class="tree">
-        <div v-for="cat in treeData.categories" :key="cat.name" class="tree-cat">
-          <div class="tree-cat-row">
-            <span class="tree-cat-name">{{ cat.name }}/</span>
-            <span class="tree-cat-count">{{ cat.count }}</span>
+        <template v-if="treeData.err">
+          <div class="tree-empty">Errore: {{ treeData.err }}</div>
+        </template>
+        <template v-else-if="treeData.categories?.length">
+          <div v-for="cat in treeData.categories" :key="cat.name" class="tree-cat">
+            <div class="tree-cat-row">
+              <span class="tree-cat-name">{{ cat.name }}/</span>
+              <span class="tree-cat-count">{{ cat.count }}</span>
+            </div>
+            <div v-for="folder in cat.folders" :key="folder.path" class="tree-folder-row">
+              <span class="tree-folder-indent">↳</span>
+              <span class="tree-folder-name">{{ folder.path }}/</span>
+              <span class="tree-folder-count">{{ folder.count }}</span>
+            </div>
           </div>
-          <div v-for="folder in cat.folders" :key="folder.path" class="tree-folder-row">
-            <span class="tree-folder-indent">↳</span>
-            <span class="tree-folder-name">{{ folder.path }}/</span>
-            <span class="tree-folder-count">{{ folder.count }}</span>
+          <div v-if="treeData.truncated" class="tree-note">
+            Stima basata sulle prime {{ treeData.scanned }} foto analizzate su {{ treeData.total }}.
           </div>
-        </div>
-        <div v-if="treeData.truncated" class="tree-note">
-          Stima basata sulle prime {{ treeData.scanned }} foto analizzate.
-        </div>
-        <div v-if="!treeData.categories?.length" class="tree-empty">
-          Nessuna foto trovata nella cartella di partenza.
-        </div>
+        </template>
+        <template v-else>
+          <div class="tree-empty">Nessuna foto trovata nella cartella selezionata.</div>
+        </template>
       </div>
     </section>
   </div>

@@ -33,6 +33,28 @@ type DestTreeResult struct {
 
 const maxTreeScan = 500
 
+// collectAllPhotosForPreview raccoglie tutti i file immagine nella cartella,
+// senza escludere le sottocartelle gestite. Serve solo per la visualizzazione
+// della struttura di destinazione, non per l'organizzazione effettiva.
+func collectAllPhotosForPreview(inputDir string) ([]string, error) {
+	var photos []string
+	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		name := info.Name()
+		if strings.HasPrefix(name, "._") {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if rawExtensions[ext] || otherExtensions[ext] {
+			photos = append(photos, path)
+		}
+		return nil
+	})
+	return photos, err
+}
+
 // PreviewTree calcola la struttura di cartelle che verrebbe creata organizzando
 // le foto nella cartella di input con le preferenze correnti.
 // Analizza al massimo maxTreeScan file in parallelo. Esposto al frontend.
@@ -46,7 +68,7 @@ func (a *App) PreviewTree(p Prefs) DestTreeResult {
 		return res
 	}
 
-	photos, err := collectPhotos(p.InputDir, outputDir)
+	photos, err := collectAllPhotosForPreview(p.InputDir)
 	if err != nil {
 		res.Err = err.Error()
 		return res
