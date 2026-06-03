@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   Trash2, AlertTriangle, Check, ChevronLeft, ChevronRight,
-  Images, RotateCcw, Play, RefreshCw,
+  Images, RotateCcw, Play, RefreshCw, Layers,
 } from '@lucide/vue'
 import { useStore } from '../../composables/useStore'
 import { PhotoData, PhotoMeta } from '../../../wailsjs/go/main/App'
@@ -36,16 +36,18 @@ async function loadMeta(path) {
 async function loadAt(idx) {
   const p = photos.value[idx]
   if (!p || p.path in srcCache) return
-  srcCache[p.path] = '' // segna come in caricamento, evita richieste doppie
+  srcCache[p.path] = null // null = in caricamento; '' = caricato senza anteprima
   try {
-    srcCache[p.path] = await PhotoData(p.path)
+    srcCache[p.path] = await PhotoData(p.path) ?? ''
   } catch (e) {
     srcCache[p.path] = ''
     console.error('PhotoData failed', e)
   }
 }
 
-const currentSrc = computed(() => current.value ? srcCache[current.value.path] : '')
+const currentSrc = computed(() => current.value ? srcCache[current.value.path] : null)
+const isLoadingPhoto = computed(() => currentSrc.value === null)
+const hasNoPreview = computed(() => currentSrc.value === '')
 
 // Carica la foto corrente e precarica la successiva quando cambia l'indice.
 watch(current, () => {
@@ -136,7 +138,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         {{ state.cullingLoading ? 'Caricamento…' : 'Nessuna foto da rivedere' }}
       </div>
       <div class="empty-sub" v-if="!state.cullingLoading">
-        Vengono mostrate le foto JPEG, PNG e WEBP nella cartella di output.
+        Vengono mostrate le foto JPEG, PNG, WEBP e i file RAW con miniatura incorporata.
       </div>
     </div>
 
@@ -156,7 +158,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
         <div class="photo-frame">
           <img v-if="currentSrc" :key="current.path" :src="currentSrc" :alt="current.name" />
-          <div v-else class="loading-ph"><RefreshCw :size="22" class="spin" /></div>
+          <div v-else-if="isLoadingPhoto" class="loading-ph"><RefreshCw :size="22" class="spin" /></div>
+          <div v-else class="no-preview-ph">
+            <Layers :size="28" />
+            <span>Anteprima non disponibile</span>
+            <span class="no-preview-sub">File RAW senza miniatura incorporata</span>
+          </div>
           <span
             v-if="current?.mark"
             class="mark-badge"
@@ -387,6 +394,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   justify-content: center;
   color: hsl(var(--muted));
 }
+.no-preview-ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: hsl(var(--muted));
+  text-align: center;
+  padding: 20px;
+}
+.no-preview-ph span { font-size: 13px; font-weight: 500; color: hsl(var(--text)); }
+.no-preview-sub { font-size: 11px; font-weight: 400 !important; color: hsl(var(--muted)) !important; }
 .mark-badge {
   position: absolute;
   top: 10px;

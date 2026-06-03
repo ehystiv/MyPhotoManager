@@ -16,6 +16,8 @@ export function Dedupe(arg1:string,arg2:boolean):Promise<void>;
 
 export function FormatPreview(arg1:string,arg2:string):Promise<main.FormatPreviewResult>;
 
+export function GetHistory():Promise<Array<main.HistoryEntry>>;
+
 export function GetPreferences():Promise<main.Prefs>;
 
 export function HandleDrop(arg1:Array<string>):Promise<string>;
@@ -31,6 +33,8 @@ export function OpenInFinder(arg1:string):Promise<void>;
 export function Organize(arg1:main.Prefs):Promise<void>;
 
 export function PhotoData(arg1:string):Promise<string>;
+
+export function PreviewTree(arg1:main.Prefs):Promise<main.DestTreeResult>;
 
 export function PhotoMeta(arg1:string):Promise<main.PhotoMetaResult>;
 

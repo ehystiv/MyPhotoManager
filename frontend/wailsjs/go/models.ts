@@ -75,6 +75,111 @@ export namespace main {
 		}
 	}
 	
+	export class DestFolder {
+	    path: string;
+	    count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new DestFolder(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.count = source["count"];
+	    }
+	}
+	export class DestCategory {
+	    name: string;
+	    count: number;
+	    folders: DestFolder[];
+
+	    static createFrom(source: any = {}) {
+	        return new DestCategory(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.count = source["count"];
+	        this.folders = this.convertValues(source["folders"], DestFolder);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) { return a; }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) { a[key] = new classs(a[key]); }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DestTreeResult {
+	    outputDir: string;
+	    categories: DestCategory[];
+	    total: number;
+	    scanned: number;
+	    truncated: boolean;
+	    err?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DestTreeResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outputDir = source["outputDir"];
+	        this.categories = this.convertValues(source["categories"], DestCategory);
+	        this.total = source["total"];
+	        this.scanned = source["scanned"];
+	        this.truncated = source["truncated"];
+	        this.err = source["err"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) { return a; }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) { a[key] = new classs(a[key]); }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HistoryEntry {
+	    runAt: string;
+	    inputDir: string;
+	    moved: number;
+	    raw: number;
+	    others: number;
+	    skipped: number;
+	    dupes: number;
+
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runAt = source["runAt"];
+	        this.inputDir = source["inputDir"];
+	        this.moved = source["moved"];
+	        this.raw = source["raw"];
+	        this.others = source["others"];
+	        this.skipped = source["skipped"];
+	        this.dupes = source["dupes"];
+	    }
+	}
+
 	export class FormatPreviewResult {
 	    folder: string;
 	    file: string;

@@ -19,6 +19,18 @@ var viewableExtensions = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
 }
 
+// rawCullingExtensions sono i formati RAW da cui si può estrarre la miniatura
+// JPEG incorporata nell'EXIF per la visualizzazione nel culling.
+var rawCullingExtensions = map[string]bool{
+	".arw": true, ".cr2": true, ".cr3": true, ".nef": true,
+	".dng": true, ".raf": true, ".rw2": true, ".orf": true,
+	".pef": true, ".srw": true, ".x3f": true,
+}
+
+func isCullingExt(ext string) bool {
+	return viewableExtensions[ext] || rawCullingExtensions[ext]
+}
+
 // reviewFolder è la sottocartella della cartella di output in cui finiscono le
 // foto marcate "review" quando si applicano le decisioni di revisione.
 const reviewFolder = "_da_correggere"
@@ -138,7 +150,7 @@ func (a *App) listCullablePhotos() ([]CullingPhoto, error) {
 		if strings.HasPrefix(name, "._") {
 			return nil
 		}
-		if !viewableExtensions[strings.ToLower(filepath.Ext(name))] {
+		if !isCullingExt(strings.ToLower(filepath.Ext(name))) {
 			return nil
 		}
 		abs, err := filepath.Abs(path)
@@ -226,9 +238,9 @@ func (a *App) applyCulling(dryRun bool) CullingApplyResult {
 	return res
 }
 
-// resolveViewable valida che path sia un file visualizzabile dentro la cartella
-// di revisione e ne restituisce il percorso assoluto. Evita letture arbitrarie.
-func (a *App) resolveViewable(path string) (string, bool) {
+// resolveCulling valida che path sia un file immagine (nativo o RAW) dentro la
+// cartella di revisione e ne restituisce il percorso assoluto. Evita letture arbitrarie.
+func (a *App) resolveCulling(path string) (string, bool) {
 	if path == "" {
 		return "", false
 	}
@@ -248,7 +260,7 @@ func (a *App) resolveViewable(path string) (string, bool) {
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return "", false
 	}
-	if !viewableExtensions[strings.ToLower(filepath.Ext(abs))] {
+	if !isCullingExt(strings.ToLower(filepath.Ext(abs))) {
 		return "", false
 	}
 	return abs, true
@@ -277,7 +289,7 @@ type PhotoMetaResult struct {
 // Esposto al frontend.
 func (a *App) PhotoMeta(path string) PhotoMetaResult {
 	var res PhotoMetaResult
-	abs, ok := a.resolveViewable(path)
+	abs, ok := a.resolveCulling(path)
 	if !ok {
 		return res
 	}
@@ -385,25 +397,46 @@ func (a *App) PhotoMeta(path string) PhotoMetaResult {
 }
 
 // PhotoData restituisce l'immagine come data-URL base64, caricata su richiesta.
-// Restituisce stringa vuota se il path non è valido o la lettura fallisce.
-// Esposto al frontend.
+// Per i formati RAW estrae la miniatura JPEG incorporata nell'EXIF.
+// Restituisce stringa vuota se il path non è valido, la lettura fallisce
+// o il RAW non contiene miniatura. Esposto al frontend.
 func (a *App) PhotoData(path string) string {
-	abs, ok := a.resolveViewable(path)
+	abs, ok := a.resolveCulling(path)
 	if !ok {
 		return ""
 	}
-	data, err := os.ReadFile(abs)
+	ext := strings.ToLower(filepath.Ext(abs))
+
+	if viewableExtensions[ext] {
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return ""
+		}
+		mime := "image/jpeg"
+		switch ext {
+		case ".png":
+			mime = "image/png"
+		case ".webp":
+			mime = "image/webp"
+		}
+		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+	}
+
+	// Formato RAW: estrai la miniatura JPEG dall'EXIF.
+	f, err := os.Open(abs)
 	if err != nil {
 		return ""
 	}
-	mime := "image/jpeg"
-	switch strings.ToLower(filepath.Ext(abs)) {
-	case ".png":
-		mime = "image/png"
-	case ".webp":
-		mime = "image/webp"
+	defer f.Close()
+	x, err := exif.Decode(f)
+	if err != nil {
+		return ""
 	}
-	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
+	thumb, err := x.JpegThumbnail()
+	if err != nil || len(thumb) == 0 {
+		return ""
+	}
+	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(thumb)
 }
 
 // ListCullingPhotos restituisce le foto visualizzabili della cartella di output

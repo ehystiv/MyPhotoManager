@@ -30,6 +30,10 @@ export function FormatPreview(arg1, arg2) {
   return window['go']['main']['App']['FormatPreview'](arg1, arg2);
 }
 
+export function GetHistory() {
+  return window['go']['main']['App']['GetHistory']();
+}
+
 export function GetPreferences() {
   return window['go']['main']['App']['GetPreferences']();
 }
@@ -60,6 +64,10 @@ export function Organize(arg1) {
 
 export function PhotoData(arg1) {
   return window['go']['main']['App']['PhotoData'](arg1);
+}
+
+export function PreviewTree(arg1) {
+  return window['go']['main']['App']['PreviewTree'](arg1);
 }
 
 export function PhotoMeta(arg1) {
