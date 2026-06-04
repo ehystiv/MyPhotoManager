@@ -2,10 +2,11 @@
 // Drag area sottile per la finestra macOS — i traffic lights nativi
 // vengono renderizzati sopra (TitleBarHiddenInset).
 // Tutti i controlli sono nella Toolbar sottostante.
+import { WindowToggleMaximise } from '../../wailsjs/runtime/runtime'
 </script>
 
 <template>
-  <div class="titlebar"></div>
+  <div class="titlebar" @dblclick="WindowToggleMaximise"></div>
 </template>
 
 <style scoped>

@@ -32,7 +32,7 @@ Frontend (Vue)  ──chiamata diretta──▶  app.go (metodi esportati su App
                 ◀──EventsEmit──────    app.go
 ```
 
-I metodi pubblici su `App` (in `app.go`) vengono esposti automaticamente al frontend. I binding JS/TS corrispondenti si trovano in `frontend/wailsjs/go/main/App.js` e `App.d.ts` — **vanno aggiornati manualmente** quando si aggiungono o rimuovono metodi, perché Wails li rigenera solo a `wails build/dev`.
+I metodi pubblici su `App` vengono esposti automaticamente al frontend. I binding JS/TS corrispondenti si trovano in `frontend/wailsjs/go/main/App.js` e `App.d.ts` — **vanno aggiornati manualmente** quando si aggiungono o rimuovono metodi, perché Wails li rigenera solo a `wails build/dev`.
 
 ### File Go
 
@@ -40,19 +40,28 @@ I metodi pubblici su `App` (in `app.go`) vengono esposti automaticamente al fron
 |------|----------------|
 | `main.go` | Entrypoint Wails, configurazione finestra macOS |
 | `app.go` | Metodi esposti al frontend: preferenze, dialog, Organize, Dedupe, Watch, drop |
-| `organizer.go` | Tutta la logica di elaborazione foto: raccolta file, EXIF, hash, spostamento/copia/rinomina, deduplicazione, pulizia cartelle vuote |
+| `organizer.go` | Raccolta file, EXIF, hash, spostamento/copia/rinomina, deduplicazione, pulizia cartelle vuote |
+| `culling.go` | Revisione foto: lista, marcatura (delete/review/ok), applicazione decisioni, lettura EXIF e dati immagine |
+| `tree.go` | `PreviewTree`: calcola la struttura di cartelle di destinazione senza spostare file |
+| `history.go` | Persistenza storico esecuzioni (`~/.myphoto/history.json`) |
 | `watcher.go` | Loop di scansione periodica (ogni 10 s) che chiama `organizePhotos` |
 
 ### Struttura output cartelle
 
 ```
 outputDir/
-  raw/          ← file con estensioni RAW (arw, cr2, nef…)
-  altri/        ← JPEG, PNG, HEIC…
+  raw/          ← tutti i formati RAW (arw, cr2, nef, dng…)
+  jpg/          ← JPEG
+  png/          ← PNG
+  heic/         ← HEIC/HEIF
+  webp/         ← WebP
+  tiff/         ← TIFF/TIF
+  bmp/          ← BMP
   senza_data/   ← file senza EXIF e senza ModTime fallback
+  _da_correggere/ ← foto marcate "review" dal culling
 ```
 
-Queste tre cartelle (`managedFolders`) vengono escluse automaticamente dalla raccolta dei file sorgente per evitare di riprocessare file già organizzati.
+Le cartelle gestite (`managedFolders`, costruita dinamicamente in `organizer.go`) sono escluse dalla raccolta dei sorgenti. "altri" è mantenuta per retrocompatibilità.
 
 ### Parallelismo
 
@@ -62,12 +71,22 @@ Queste tre cartelle (`managedFolders`) vengono escluse automaticamente dalla rac
 - `mu` serializza scritture su log e stats
 - `counter atomic.Int32` per il progresso senza lock
 
+`PreviewTree` usa un semaforo (`chan struct{}{}` da 8) con goroutine + `sync.WaitGroup`.
+
+### Persistenza (`~/.myphoto/`)
+
+| File | Contenuto |
+|------|-----------|
+| `prefs.json` | Preferenze utente (`Prefs`) |
+| `culling.json` | Marcature di revisione (map `path → mark`) |
+| `history.json` | Storico esecuzioni (max 100 voci) |
+
 ### Eventi Wails (backend → frontend)
 
 | Evento | Payload | Quando |
 |--------|---------|--------|
 | `organize:start` | — | inizio operazione |
-| `progress:update` | `{current, total, filename}` | ogni file elaborato |
+| `progress:update` | `{current, total, filename, throughput, etaSec, elapsedSec}` | ogni file elaborato (throttle 50 ms) |
 | `log:update` | stringa cumulativa | ogni scrittura sul log |
 | `organize:done` | `OrganizeResult` | fine organizzazione |
 | `dedupe:done` | `DedupeResult` | fine deduplicazione |
@@ -75,8 +94,31 @@ Queste tre cartelle (`managedFolders`) vengono escluse automaticamente dalla rac
 
 ### Frontend
 
-Single-file component `frontend/src/App.vue` (script setup + template + style scoped). Non ci sono componenti separati. Le variabili CSS globali (colori, radius) sono in `frontend/src/style.css`.
+Struttura in `frontend/src/`:
+
+```
+App.vue                    ← shell principale: tab nav, toolbar, drop overlay
+components/
+  tabs/                    ← una tab per funzionalità (OrganizzaTab, CullingTab, DedupeTab, WatchTab, LogTab, ResultsTab, OptionsTab)
+  TabsNav.vue, Toolbar.vue, Titlebar.vue, StatusBar.vue  ← layout
+  Checkbox.vue, ConfirmDialog.vue, DropOverlay.vue, DryRunBanner.vue, EmptyState.vue, PathDisplay.vue, Tooltip.vue
+composables/
+  useStore.js              ← stato globale reattivo (singleton), tutte le azioni e gli event listener Wails
+  useShortcuts.js          ← scorciatoie da tastiera globali
+  useLogParser.js          ← parsing del testo di log in voci strutturate
+  useTheme.js              ← tema chiaro/scuro
+lib/
+  presets.js               ← preset di formato per FolderFmt/FileTpl
+  utils.js                 ← formatBytes, helpers
+style.css                  ← variabili CSS globali (colori, radius), Tailwind base
+```
+
+**`useStore.js`** è l'unico punto di stato globale: espone `state` reattivo, computed (`canRun`, `progPct`, `isUnsafeOrganize`) e tutte le azioni. I componenti non chiamano direttamente le API Wails — passano sempre da `useStore`.
 
 ### Preferenze utente
 
-Salvate in `~/.myphoto/prefs.json` tramite `loadPrefs`/`savePrefs`. Il tipo `Prefs` in `app.go` è sia il formato di persistenza che il parametro passato a `Organize` e `BeginWatch`.
+Il tipo `Prefs` in `app.go` è sia il formato di persistenza che il parametro passato a `Organize`, `BeginWatch` e `PreviewTree`. I default sono `FolderFmt: "2006_01_02"` e `FileTpl: "photo_{date}_{time}"`. Il campo `RawSplit` controlla la suddivisione dei RAW per estensione (vuoto = tutti in `raw/`).
+
+### Culling (revisione foto)
+
+Il sistema di culling opera sulla `cullingRoot` (outputDir se impostato, altrimenti inputDir). I formati supportati sono JPEG/PNG/WebP (nativi browser) e RAW (miniatura JPEG estratta dall'EXIF). Le marcature sono persistite in `culling.json` e applicate tramite `ApplyCulling(dryRun bool)`.

@@ -95,7 +95,7 @@ async function doScan(dir) {
     const r = await ScanPhotos(dir)
     state.scanResult = r
     if (!r || r.total === 0) {
-      state.scanInfo = 'Nessuna foto trovata.'
+      state.scanInfo = 'Nessuna foto da organizzare.'
       return
     }
     let msg = `${r.total} foto · ${r.raw} RAW · ${r.others} altri`

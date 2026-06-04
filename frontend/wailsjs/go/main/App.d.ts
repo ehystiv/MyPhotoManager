@@ -34,9 +34,9 @@ export function Organize(arg1:main.Prefs):Promise<void>;
 
 export function PhotoData(arg1:string):Promise<string>;
 
-export function PreviewTree(arg1:main.Prefs):Promise<main.DestTreeResult>;
-
 export function PhotoMeta(arg1:string):Promise<main.PhotoMetaResult>;
+
+export function PreviewTree(arg1:main.Prefs):Promise<main.DestTreeResult>;
 
 export function ResetCullingMarks():Promise<void>;
 

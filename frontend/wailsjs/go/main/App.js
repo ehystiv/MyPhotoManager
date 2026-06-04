@@ -66,12 +66,12 @@ export function PhotoData(arg1) {
   return window['go']['main']['App']['PhotoData'](arg1);
 }
 
-export function PreviewTree(arg1) {
-  return window['go']['main']['App']['PreviewTree'](arg1);
-}
-
 export function PhotoMeta(arg1) {
   return window['go']['main']['App']['PhotoMeta'](arg1);
+}
+
+export function PreviewTree(arg1) {
+  return window['go']['main']['App']['PreviewTree'](arg1);
 }
 
 export function ResetCullingMarks() {

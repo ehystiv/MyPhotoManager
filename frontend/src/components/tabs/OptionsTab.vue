@@ -490,7 +490,7 @@ function insertToken(token) {
             </div>
           </div>
           <div v-if="treeData.truncated" class="tree-note">
-            Stima basata sulle prime {{ treeData.scanned }} foto analizzate su {{ treeData.total }}.
+            Stima basata sulle prime {{ treeData.total }} foto analizzate su {{ treeData.scanned }}.
           </div>
         </template>
         <template v-else>
